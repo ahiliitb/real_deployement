@@ -6,16 +6,46 @@ Similar structure to Virtual Trading page
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import json
+from datetime import datetime, date
 from pathlib import Path
 import os
 import yfinance as yf
 import time
 
-from config import TRADE_DEDUP_COLUMNS
+from config import TRADE_DEDUP_COLUMNS, NEW_EXIT_SIGNALS_MAX_DAYS
 
 # CSV file for persistent storage of monitored signals
 MONITORED_TRADES_CSV = "trade_store/INDIA/monitored_trades.csv"
+DATA_FETCH_DATETIME_JSON = os.path.join(os.path.dirname(MONITORED_TRADES_CSV), "data_fetch_datetime.json")
+
+
+def _get_data_fetch_date():
+    """Return data-fetch date from data_fetch_datetime.json as date, or None if missing/invalid."""
+    if not os.path.isfile(DATA_FETCH_DATETIME_JSON):
+        return None
+    try:
+        with open(DATA_FETCH_DATETIME_JSON) as f:
+            data = json.load(f)
+        d = data.get("date") or (data.get("datetime", "")[:10] if data.get("datetime") else None)
+        if not d:
+            return None
+        return datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _parse_exit_date(val):
+    """Parse Exit_Date value to date or None."""
+    if val is None or (hasattr(val, 'isna') and pd.isna(val)):
+        return None
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    try:
+        return datetime.strptime(s[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
 
 def load_monitored_signals_from_csv():
     """Load monitored signals from CSV file"""
@@ -623,6 +653,29 @@ def display_interval_tabs(df, position_name, trade_status):
 
             # Search and remove trades interface
             display_trade_removal_interface(interval_df, f"{position_name} - {interval}", f"{trade_status}_{position_name}_{interval}")
+
+            # New Exit Signals: asset names where exit date/price set and (data_fetch_date - exit_date) <= 3 days
+            data_fetch_d = _get_data_fetch_date()
+            if data_fetch_d is not None:
+                new_exit_symbols = []
+                for _, row in interval_df.iterrows():
+                    exit_d = _parse_exit_date(row.get("Exit_Date"))
+                    exit_price = row.get("Exit_Price")
+                    if exit_d is None or (hasattr(exit_price, 'isna') and pd.isna(exit_price)) or exit_price is None or str(exit_price).strip() in ('', 'nan'):
+                        continue
+                    try:
+                        delta_days = (data_fetch_d - exit_d).days
+                        if 0 <= delta_days <= NEW_EXIT_SIGNALS_MAX_DAYS:
+                            sym = row.get("Symbol", "")
+                            if sym and str(sym).strip():
+                                new_exit_symbols.append(str(sym).strip())
+                    except (TypeError, ValueError):
+                        continue
+                if new_exit_symbols:
+                    st.markdown("### 🆕 New Exit Signals")
+                    st.caption(f"Exits within {NEW_EXIT_SIGNALS_MAX_DAYS} days of data fetch (these signals appear in the table below).")
+                    st.write(", ".join(sorted(set(new_exit_symbols))))
+                    st.markdown("---")
 
             # Display detailed data table
             st.markdown("### 📋 Detailed Data Table")

@@ -26,6 +26,9 @@ PAGE_OPTIONS = [
 # Card pagination settings (cards per tab; container height fixed, scroll to see all)
 CARDS_PER_PAGE = 30
 
+# New Exit Signals: max days between exit date and data fetch date to show in "New Exit Signals" (Monitored page)
+NEW_EXIT_SIGNALS_MAX_DAYS = 2
+
 # Trade deduplication: columns used to build unique key (same key = duplicate trade)
 TRADE_DEDUP_COLUMNS = [
     "Function",      # function name

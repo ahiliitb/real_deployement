@@ -1,0 +1,54 @@
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+/opt/homebrew/Cellar/python@3.12/3.12.11_1/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python: can't open file '/home/ubuntu/MindWealth/send_email.py': [Errno 2] No such file or directory
+Using today's date: 2026-02-07 (load_online is True)
+All CSV files in trade_store will be named with date: 2026-02-07
+Data fetch date/time saved to trade_store/INDIA/data_fetch_datetime.json
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Traceback (most recent call last):
+  File "/Users/ahilkhaniitb/work/mindwealth/real_deployement/../MindWealth/send_email.py", line 2690, in <module>
+    main()
+  File "/Users/ahilkhaniitb/work/mindwealth/real_deployement/../MindWealth/send_email.py", line 2673, in main
+    get_exit_target_symbol_list(from_cache=False)
+  File "/Users/ahilkhaniitb/work/mindwealth/MindWealth/data.py", line 92, in get_exit_target_symbol_list
+    joblib.dump(df, './cache/{}.che'.format('exit_target_lookup_symbol'))
+  File "/Users/ahilkhaniitb/work/mindwealth/MindWealth/venv/lib/python3.12/site-packages/joblib/numpy_pickle.py", line 552, in dump
+    with open(filename, 'wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: './cache/exit_target_lookup_symbol.che'
+Using today's date: 2026-02-07 (load_online is True)
+All CSV files in trade_store will be named with date: 2026-02-07
+Data fetch date/time saved to trade_store/INDIA/data_fetch_datetime.json
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Error at line 1504:  [Errno 2] No such file or directory: './data/indianstake.csv'
+Traceback (most recent call last):
+  File "/Users/ahilkhaniitb/work/mindwealth/real_deployement/../MindWealth/send_email.py", line 2690, in <module>
+    main()
+  File "/Users/ahilkhaniitb/work/mindwealth/real_deployement/../MindWealth/send_email.py", line 2673, in main
+    get_exit_target_symbol_list(from_cache=False)
+  File "/Users/ahilkhaniitb/work/mindwealth/MindWealth/data.py", line 92, in get_exit_target_symbol_list
+    joblib.dump(df, './cache/{}.che'.format('exit_target_lookup_symbol'))
+  File "/Users/ahilkhaniitb/work/mindwealth/MindWealth/venv/lib/python3.12/site-packages/joblib/numpy_pickle.py", line 552, in dump
+    with open(filename, 'wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: './cache/exit_target_lookup_symbol.che'

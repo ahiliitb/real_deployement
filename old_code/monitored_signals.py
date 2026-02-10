@@ -648,6 +648,10 @@ def display_interval_tabs(df, position_name, trade_status):
                 st.info(f"No data available for {interval}")
                 continue
 
+            # Sort by Signal_Date (newest first) for the detailed table
+            if "Signal_Date" in interval_df.columns:
+                interval_df = interval_df.sort_values(by="Signal_Date", ascending=False, na_position="last")
+
             # Display summary metrics
             display_monitored_trades_metrics(interval_df, interval, position_name)
 

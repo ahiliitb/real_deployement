@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script: 1) Run emailscript_india.sh (signal generation), 2) Copy trade files from MindWealth, 3) Enrich Trendline/Distance with fundamentals, 4) Sync monitored from signals, 5) Update monitored prices (yfinance)
+# Script: 1) Run emailscript_india.sh (signal generation), 2) Copy trade files from MindWealth, 3) Enrich Trendline/Distance with fundamentals
 
 set -e  # Exit on any error
 
@@ -114,42 +114,33 @@ else
     echo "   ⚠️  Fundamentals enrichment had warnings (see above)"
 fi
 
-# Step 4: Sync monitored trades from Trendline/Distance (update MTM, win rate, etc. by dedup key)
+# Step 4: Build / update potential_entry.csv and potential_exit.csv from latest Distance/Trendline files
 echo ""
-echo "🔄 Syncing monitored trades from Trendline and Distance signals..."
-if python3 update_monitored_from_signals.py; then
-    echo "   ✅ Monitored trades synced from signals"
+echo "📌 Updating potential entry/exit CSVs..."
+if python3 entry_exit_fetcher.py; then
+    echo "   ✅ Potential entry/exit CSVs updated"
 else
-    echo "   ⚠️  Sync had warnings (see above)"
+    echo "   ⚠️  Potential entry/exit update had warnings (see above)"
 fi
 
-# Step 5: Update monitored trades with latest stock prices (yfinance)
+# Step 5: Update Today Price for potential_entry.csv and potential_exit.csv (same logic as Potential page button)
 echo ""
-echo "⭐ Updating monitored trades with latest stock prices (yfinance)..."
-python3 -c "
+echo "💰 Updating Today Price for potential entry/exit..."
+python3 - << 'PY'
 import sys
 import os
-sys.path.insert(0, '.')
-from page_functions.monitored_signals import update_monitored_signal_prices, load_monitored_signals_from_csv
 
-signals = load_monitored_signals_from_csv()
-print(f'  📈 Monitored trades: {len(signals)}')
-if len(signals) == 0:
-    print('  ⚠️  No monitored trades to update')
-    sys.exit(0)
+sys.path.insert(0, '.')
+
+from page_functions.potential_signals import _update_potential_prices
+
 try:
-    update_monitored_signal_prices()
-    print('  ✅ Monitored trades prices updated successfully!')
-except ValueError as e:
-    print(f'  ❌ Error: {e}')
-    sys.exit(1)
+    _update_potential_prices()
+    print("   ✅ Today Price updated for potential_entry.csv and potential_exit.csv")
 except Exception as e:
-    print(f'  ❌ Error updating prices: {e}')
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-" || echo "   ⚠️  Monitored price update had errors (see above)"
+    print(f"   ⚠️  Failed to update Today Price for potential CSVs: {e}")
+PY
 
 echo ""
 echo "✅ Report generation completed!"
-echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, monitored sync from signals, monitored prices."
+echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, potential entry/exit CSVs with updated Today Price."

@@ -6,8 +6,8 @@ import subprocess
 from config import PAGE_CONFIG, METRIC_CARD_CSS, PAGE_OPTIONS, INDIA_DATA_DIR
 from page_functions.trendline_signals import show_trendline_signals
 from page_functions.distance_signals import show_distance_signals
-from page_functions.monitored_signals import show_monitored_signals
 from page_functions.forward_testing import show_forward_testing
+from page_functions.potential_signals import show_potential_entry_exit
 
 # Project root (directory where app.py lives)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -68,12 +68,13 @@ selected_page = st.sidebar.selectbox(
     index=page_index
 )
 
-# Use a link to force full browser reload so all data is refetched from CSV (st.rerun() can leave stale data)
-st.sidebar.link_button(
+# Refresh in the same window (rerun refetches data from CSV)
+if st.sidebar.button(
     "🔄 Refresh page",
-    "?r=" + str(int(time.time())),
-    help="Reload the app and fetch latest data from CSV files (full page refresh)"
-)
+    key="refresh_page_btn",
+    help="Reload the app and fetch latest data from CSV files (same window)",
+):
+    st.rerun()
 st.sidebar.markdown("---")
 
 # Initialize filter variables
@@ -175,8 +176,8 @@ if selected_page == "📈 Trendline Signals":
 elif selected_page == "📏 Distance Signals":
     show_distance_signals(min_win_rate=min_win_rate, min_sharpe=min_sharpe)
 
-elif selected_page == "👁️ Monitored Signals":
-    show_monitored_signals()
+elif selected_page == "📌 Potential Entry & Exit":
+    show_potential_entry_exit()
 
 elif selected_page == "📊 Forward Testing Performance":
     show_forward_testing(selected_function=selected_function, selected_interval=selected_interval)

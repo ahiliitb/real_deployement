@@ -19,8 +19,8 @@ DATA_FILES = {
 PAGE_OPTIONS = [
     "📈 Trendline Signals",
     "📏 Distance Signals",
-    "👁️ Monitored Signals",
-    "📊 Forward Testing Performance"
+    "📌 Potential Entry & Exit",
+    "📊 Forward Testing Performance",
 ]
 
 # Card pagination settings (cards per tab; container height fixed, scroll to see all)

@@ -7,6 +7,7 @@ Run after update_trade.sh so strategy cards can show these columns from the CSV.
 
 import os
 import sys
+import time
 
 # Run from project root
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,9 +15,9 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 import pandas as pd
+import yfinance as yf
 from utils.data_loader import get_latest_dated_file_path
 from config import INDIA_DATA_DIR, DATA_FILES
-from page_functions.monitored_signals import fetch_additional_stock_data
 
 
 def symbol_from_first_column(cell):
@@ -29,6 +30,122 @@ def symbol_from_first_column(cell):
     if ", " in s:
         return s.split(", ")[0].strip('"').strip()
     return s.strip('"').strip()
+
+
+def fetch_additional_stock_data(symbol):
+    """
+    Fetch PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit
+    using yfinance. This is an inlined version of the helper previously defined
+    in the monitored trades module.
+    """
+    try:
+        # Small delay to avoid rate limiting
+        time.sleep(0.5)
+
+        ticker = yf.Ticker(symbol)
+
+        info = ticker.info or {}
+
+        # PE Ratio
+        pe_ratio = info.get("trailingPE") or info.get("forwardPE") or "N/A"
+
+        # Industry/Sector for Industry PE approximation
+        industry = info.get("industry", "Unknown")
+        sector = info.get("sector", "Unknown")
+
+        industry_pe_ratios = {
+            # Technology
+            "Semiconductors": 25.0,
+            "Software": 30.0,
+            "Consumer Electronics": 20.0,
+            "Computer Hardware": 22.0,
+            "Information Technology Services": 28.0,
+            # Healthcare
+            "Biotechnology": 35.0,
+            "Drug Manufacturers": 18.0,
+            "Medical Devices": 25.0,
+            "Healthcare Plans": 15.0,
+            "Medical Diagnostics & Research": 30.0,
+            # Financial Services
+            "Banks": 12.0,
+            "Insurance": 14.0,
+            "Asset Management": 16.0,
+            "Credit Services": 10.0,
+            "Capital Markets": 18.0,
+            # Consumer Goods
+            "Beverages": 20.0,
+            "Food": 18.0,
+            "Household & Personal Products": 22.0,
+            "Tobacco": 15.0,
+            "Apparel": 25.0,
+            # Energy
+            "Oil & Gas": 8.0,
+            "Utilities": 16.0,
+            # Industrials
+            "Aerospace": 20.0,
+            "Engineering": 22.0,
+            "Manufacturing": 18.0,
+            # Default
+            "Unknown": 20.0,
+        }
+
+        industry_pe = industry_pe_ratios.get(
+            industry, industry_pe_ratios.get(sector, 20.0)
+        )
+
+        # Quarterly financials for profit data
+        quarterly_financials = ticker.quarterly_financials
+
+        last_quarter_profit = "N/A"
+        last_year_same_quarter_profit = "N/A"
+
+        if (
+            quarterly_financials is not None
+            and not quarterly_financials.empty
+            and "Net Income" in quarterly_financials.index
+        ):
+            net_income_series = quarterly_financials.loc["Net Income"]
+
+            last_available_idx = None
+            for i in range(len(net_income_series)):
+                val = net_income_series.iloc[i]
+                if pd.notna(val) and str(val).strip() not in ("", "nan", "N/A"):
+                    try:
+                        float(val)
+                        last_available_idx = i
+                        break
+                    except (ValueError, TypeError):
+                        continue
+
+            if last_available_idx is not None:
+                last_quarter_profit = net_income_series.iloc[last_available_idx]
+                prior_year_idx = last_available_idx + 4
+                if prior_year_idx < len(net_income_series):
+                    last_year_same_quarter_profit = net_income_series.iloc[prior_year_idx]
+
+        def clean_value(val):
+            if val == "N/A" or (
+                hasattr(val, "isna") and val.isna()
+            ) or str(val).lower() == "nan":
+                return "No Data"
+            return val
+
+        return {
+            "PE_Ratio": clean_value(pe_ratio),
+            "Industry_PE": clean_value(industry_pe),
+            "Last_Quarter_Profit": clean_value(last_quarter_profit),
+            "Last_Year_Same_Quarter_Profit": clean_value(
+                last_year_same_quarter_profit
+            ),
+        }
+
+    except Exception:
+        return {
+            "PE_Ratio": "No Data",
+            "Industry_PE": "No Data",
+            "Last_Quarter_Profit": "No Data",
+            "Last_Year_Same_Quarter_Profit": "No Data",
+        }
 
 
 def enrich_csv_with_fundamentals(file_path):

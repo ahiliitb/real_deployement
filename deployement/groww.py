@@ -1,8 +1,10 @@
+import base64
 import os
 import csv
 from typing import Dict, Any, List, Optional
 from datetime import date
 
+import pyotp
 from dotenv import load_dotenv
 from growwapi import GrowwAPI
 
@@ -12,7 +14,8 @@ class GrowwTradingClient:
     High-level wrapper around the Groww Python SDK.
 
     This class:
-    - Authenticates using `GROWW_API_KEY` and `GROWW_API_SECRET` from `.env`.
+    - Authenticates using `GROWW_API_KEY` and `GROWW_TOTP_SECRET` (TOTP-based)
+      or `GROWW_ACCESS_TOKEN` (direct token) from `.env`.
     - Provides methods to fetch holdings, cash, and today's trades.
     - Computes a *net holdings* view (holdings adjusted for today's trades).
     - Can place simple BUY/SELL equity orders.
@@ -24,27 +27,65 @@ class GrowwTradingClient:
 
         Expected environment variables
         ------------------------------
-        GROWW_API_KEY : str
-            API key generated from the Groww Trading API dashboard.
-        GROWW_API_SECRET : str
-            API secret paired with the above key.
+        Option 1 (TOTP-based, recommended):
+            GROWW_API_KEY : str
+                API key generated from the Groww Trading API dashboard.
+            GROWW_TOTP_SECRET : str
+                TOTP secret for generating 6-digit codes (used with pyotp).
+
+        Option 2 (direct token):
+            GROWW_ACCESS_TOKEN : str
+                Pre-fetched access token. If set, API_KEY and TOTP_SECRET
+                are not required.
 
         Raises
         ------
         RuntimeError
-            If either env var is missing.
+            If required env vars are missing.
         """
         load_dotenv()
 
-        api_key = os.getenv("GROWW_API_KEY")
-        api_secret = os.getenv("GROWW_API_SECRET")
+        access_token = os.getenv("GROWW_ACCESS_TOKEN")
+        if access_token:
+            # Use provided access token directly
+            self.api = GrowwAPI(access_token)
+            return
 
-        if not api_key or not api_secret:
+        api_key = os.getenv("GROWW_API_KEY")
+        totp_secret = os.getenv("GROWW_TOTP_SECRET")
+
+        if not api_key or not totp_secret:
             raise RuntimeError(
-                "Set GROWW_API_KEY and GROWW_API_SECRET in your .env file."
+                "Set either GROWW_ACCESS_TOKEN, or both GROWW_API_KEY and "
+                "GROWW_TOTP_SECRET in your .env file."
             )
 
-        access_token = GrowwAPI.get_access_token(api_key=api_key, secret=api_secret)
+        # TOTP secret must be Base32 (A-Z, 2-7). Sanitize and handle common variants.
+        totp_secret = totp_secret.strip().replace(" ", "").replace("-", "")
+
+        # If secret looks like hex (e.g. Groww format), convert to Base32
+        if all(c in "0123456789abcdefABCDEF" for c in totp_secret) and len(totp_secret) >= 16:
+            try:
+                raw_bytes = bytes.fromhex(totp_secret)
+                totp_secret = base64.b32encode(raw_bytes).decode("ascii").rstrip("=")
+            except ValueError:
+                pass  # Not valid hex, fall through to try as Base32
+
+        totp_secret = totp_secret.upper()
+        # Groww uses Base32 variant with 0/1 - map to O/I for standard Base32
+        totp_secret = totp_secret.replace("0", "O").replace("1", "I")
+
+        try:
+            totp_gen = pyotp.TOTP(totp_secret)
+            current_otp = totp_gen.now()
+        except Exception as e:
+            raise RuntimeError(
+                f"Invalid GROWW_TOTP_SECRET format. TOTP secrets must be Base32 "
+                f"(only letters A-Z and digits 2-7). Remove spaces and ensure no "
+                f"invalid characters. Original error: {e}"
+            ) from e
+
+        access_token = GrowwAPI.get_access_token(api_key=api_key, totp=current_otp)
         self.api = GrowwAPI(access_token)
 
     # --------------------------------------------------------------------- #
@@ -506,10 +547,11 @@ def main() -> None:
     Script entry point for command-line usage.
 
     Creates a `GrowwTradingClient` and generates the net holdings report,
-    writing it to `net_holdings.csv` in the current working directory.
+    writing it to `net_holdings.csv` in the deployement folder.
     """
     client = GrowwTradingClient()
-    client.generate_net_holdings_report(csv_filename="net_holdings.csv")
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "net_holdings.csv")
+    client.generate_net_holdings_report(csv_filename=csv_path)
 
 
 if __name__ == "__main__":

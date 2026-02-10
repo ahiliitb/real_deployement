@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, Any, List, Optional, Tuple
 
 import pandas as pd
@@ -433,78 +433,122 @@ def main() -> None:
     # --- EXIT LOGIC: move resolved trades to potential_exit.csv ---
     # Reload entry DataFrame to ensure consistency
     entry_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
-    if entry_df.empty:
-        # Nothing to exit
-        return
+    if not entry_df.empty:
+        entry_records = entry_df.to_dict(orient="records")
+        entry_key_to_indices: Dict[str, List[int]] = {}
+        for idx, rec in enumerate(entry_records):
+            key = get_trade_dedup_key_from_record(rec)
+            rec["Dedup_Key"] = key
+            entry_key_to_indices.setdefault(key, []).append(idx)
 
-    entry_records = entry_df.to_dict(orient="records")
-    entry_key_to_indices: Dict[str, List[int]] = {}
-    for idx, rec in enumerate(entry_records):
-        key = get_trade_dedup_key_from_record(rec)
-        rec["Dedup_Key"] = key
-        entry_key_to_indices.setdefault(key, []).append(idx)
+        # Build records that now have an exit signal
+        exit_candidate_records: List[Dict[str, Any]] = []
+        for record in all_records:
+            exit_raw = str(record.get("Exit_Signal_Raw", "")).strip().lower()
+            if not exit_raw or "no exit yet" in exit_raw:
+                continue
+            key = record["Dedup_Key"]
+            if key in entry_key_to_indices:
+                exit_candidate_records.append(record)
 
-    # Build records that now have an exit signal
-    exit_candidate_records: List[Dict[str, Any]] = []
-    for record in all_records:
-        exit_raw = str(record.get("Exit_Signal_Raw", "")).strip().lower()
-        if not exit_raw or "no exit yet" in exit_raw:
-            continue
-        key = record["Dedup_Key"]
-        if key in entry_key_to_indices:
-            exit_candidate_records.append(record)
+        if exit_candidate_records:
+            # Load existing potential_exit.csv
+            existing_exit_df = load_existing_csv(POTENTIAL_EXIT_CSV)
+            existing_exit_records: List[Dict[str, Any]] = []
+            if not existing_exit_df.empty:
+                existing_exit_records = existing_exit_df.to_dict(orient="records")
 
-    if not exit_candidate_records:
-        # No exits detected for existing potential entries
-        return
+            # Build new exit records and mark indices to remove from entry
+            indices_to_remove: List[int] = []
+            for exit_rec in exit_candidate_records:
+                key = exit_rec["Dedup_Key"]
+                indices = entry_key_to_indices.get(key, [])
+                if not indices:
+                    continue
+                base_idx = indices[0]
+                base_rec = entry_records[base_idx].copy()
+                base_rec["Exit_Signal_Raw"] = exit_rec.get("Exit_Signal_Raw")
+                base_rec["Exit_Date"] = exit_rec.get("Exit_Date")
+                base_rec["Exit_Price"] = exit_rec.get("Exit_Price")
+                base_rec["Today_Price"] = exit_rec.get("Today_Price", base_rec.get("Today_Price"))
+                base_rec["Today_vs_Signal_Pct"] = exit_rec.get(
+                    "Today_vs_Signal_Pct", base_rec.get("Today_vs_Signal_Pct")
+                )
+                base_rec["Today_vs_Signal_Pct_Signed"] = exit_rec.get(
+                    "Today_vs_Signal_Pct_Signed", base_rec.get("Today_vs_Signal_Pct_Signed")
+                )
+                existing_exit_records.append(base_rec)
+                indices_to_remove.extend(indices)
 
-    # Load existing potential_exit.csv
-    existing_exit_df = load_existing_csv(POTENTIAL_EXIT_CSV)
-    existing_exit_records: List[Dict[str, Any]] = []
-    if not existing_exit_df.empty:
-        existing_exit_records = existing_exit_df.to_dict(orient="records")
+            if indices_to_remove:
+                indices_to_remove = sorted(set(indices_to_remove))
+                entry_records_after = [
+                    rec for idx, rec in enumerate(entry_records) if idx not in indices_to_remove
+                ]
+                if entry_records_after:
+                    save_records_to_csv(POTENTIAL_ENTRY_CSV, entry_records_after)
+                else:
+                    pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
 
-    # Build new exit records and mark indices to remove from entry
-    indices_to_remove: List[int] = []
-    for exit_rec in exit_candidate_records:
-        key = exit_rec["Dedup_Key"]
-        indices = entry_key_to_indices.get(key, [])
-        if not indices:
-            continue
-        # Use the first matching entry record as base, but update exit info
-        base_idx = indices[0]
-        base_rec = entry_records[base_idx].copy()
-        base_rec["Exit_Signal_Raw"] = exit_rec.get("Exit_Signal_Raw")
-        base_rec["Exit_Date"] = exit_rec.get("Exit_Date")
-        base_rec["Exit_Price"] = exit_rec.get("Exit_Price")
-        base_rec["Today_Price"] = exit_rec.get("Today_Price", base_rec.get("Today_Price"))
-        base_rec["Today_vs_Signal_Pct"] = exit_rec.get(
-            "Today_vs_Signal_Pct", base_rec.get("Today_vs_Signal_Pct")
-        )
-        base_rec["Today_vs_Signal_Pct_Signed"] = exit_rec.get(
-            "Today_vs_Signal_Pct_Signed", base_rec.get("Today_vs_Signal_Pct_Signed")
-        )
-        existing_exit_records.append(base_rec)
-        # Mark all entries with this key for removal
-        indices_to_remove.extend(indices)
+                if existing_exit_records:
+                    save_records_to_csv(POTENTIAL_EXIT_CSV, existing_exit_records)
+                else:
+                    pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
 
-    # Remove entries that now have exits
-    if indices_to_remove:
-        indices_to_remove = sorted(set(indices_to_remove))
-        entry_records_after = [
-            rec for idx, rec in enumerate(entry_records) if idx not in indices_to_remove
-        ]
-        if entry_records_after:
-            save_records_to_csv(POTENTIAL_ENTRY_CSV, entry_records_after)
-        else:
-            # Write empty CSV with no rows
-            pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
+    # --- CLEANUP: remove entries with profit > 1%, exits older than 3 days ---
+    fetch_date = date.today()
 
-        # Save updated potential_exit.csv
-        if existing_exit_records:
-            save_records_to_csv(POTENTIAL_EXIT_CSV, existing_exit_records)
-        else:
-            pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
+    # Potential Entry: remove if profit > 1% (LONG: Today_Price above Signal_Price by > 1%)
+    entry_clean_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
+    if not entry_clean_df.empty:
+        entry_clean_records = entry_clean_df.to_dict(orient="records")
+        keep_entries: List[Dict[str, Any]] = []
+        for rec in entry_clean_records:
+            today_price = rec.get("Today_Price")
+            signal_price = rec.get("Signal_Price")
+            if today_price is None or signal_price is None:
+                keep_entries.append(rec)
+                continue
+            try:
+                today_price = float(today_price)
+                signal_price = float(signal_price)
+            except (TypeError, ValueError):
+                keep_entries.append(rec)
+                continue
+            if signal_price <= 0:
+                keep_entries.append(rec)
+                continue
+            profit_pct = (today_price - signal_price) / signal_price * 100
+            if profit_pct <= 1.0:
+                keep_entries.append(rec)
+        if len(keep_entries) != len(entry_clean_records):
+            if keep_entries:
+                save_records_to_csv(POTENTIAL_ENTRY_CSV, keep_entries)
+            else:
+                pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
+
+    # Potential Exit: remove if (fetch_date - exit_date) > 3 days
+    exit_clean_df = load_existing_csv(POTENTIAL_EXIT_CSV)
+    if not exit_clean_df.empty:
+        exit_clean_records = exit_clean_df.to_dict(orient="records")
+        keep_exits: List[Dict[str, Any]] = []
+        for rec in exit_clean_records:
+            exit_date_str = rec.get("Exit_Date")
+            if not exit_date_str:
+                keep_exits.append(rec)
+                continue
+            try:
+                exit_dt = datetime.strptime(str(exit_date_str).strip()[:10], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                keep_exits.append(rec)
+                continue
+            if (fetch_date - exit_dt).days <= 3:
+                keep_exits.append(rec)
+        if len(keep_exits) != len(exit_clean_records):
+            if keep_exits:
+                save_records_to_csv(POTENTIAL_EXIT_CSV, keep_exits)
+            else:
+                pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
 
 
 if __name__ == "__main__":

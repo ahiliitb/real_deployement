@@ -114,7 +114,16 @@ else
     echo "   ⚠️  Fundamentals enrichment had warnings (see above)"
 fi
 
-# Step 4: Build / update potential_entry.csv and potential_exit.csv from latest Distance/Trendline files
+# Step 4: Build / update all_signals.csv from latest Distance/Trendline files
+echo ""
+echo "📚 Updating all_signals.csv (all deduplicated signals)..."
+if python3 all_signals_fetcher.py; then
+    echo "   ✅ all_signals.csv updated"
+else
+    echo "   ⚠️  all_signals.csv update had warnings (see above)"
+fi
+
+# Step 5: Build / update potential_entry.csv and potential_exit.csv from latest Distance/Trendline files
 echo ""
 echo "📌 Updating potential entry/exit CSVs..."
 if python3 entry_exit_fetcher.py; then
@@ -123,7 +132,7 @@ else
     echo "   ⚠️  Potential entry/exit update had warnings (see above)"
 fi
 
-# Step 5: Update Today Price for potential_entry.csv and potential_exit.csv (same logic as Potential page button)
+# Step 6: Update Today Price for potential_entry.csv and potential_exit.csv (same logic as Potential page button)
 echo ""
 echo "💰 Updating Today Price for potential entry/exit..."
 python3 - << 'PY'

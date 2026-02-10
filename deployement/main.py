@@ -1,6 +1,9 @@
 import argparse
+import os
 
 from groww import GrowwTradingClient
+
+_DEPLOYEMENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _parse_args() -> argparse.Namespace:
@@ -56,7 +59,9 @@ def main() -> None:
         print("SELL order response:", resp)
     else:
         # Default behaviour: generate the net holdings report
-        client.generate_net_holdings_report(csv_filename="net_holdings.csv")
+        client.generate_net_holdings_report(
+            csv_filename=os.path.join(_DEPLOYEMENT_DIR, "net_holdings.csv")
+        )
 
 
 if __name__ == "__main__":

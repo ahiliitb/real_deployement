@@ -8,6 +8,7 @@ from page_functions.trendline_signals import show_trendline_signals
 from page_functions.distance_signals import show_distance_signals
 from page_functions.forward_testing import show_forward_testing
 from page_functions.potential_signals import show_potential_entry_exit
+from page_functions.all_signals import show_all_signals
 
 # Project root (directory where app.py lives)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -175,6 +176,9 @@ if selected_page == "📈 Trendline Signals":
 
 elif selected_page == "📏 Distance Signals":
     show_distance_signals(min_win_rate=min_win_rate, min_sharpe=min_sharpe)
+
+elif selected_page == "📚 All Signals":
+    show_all_signals()
 
 elif selected_page == "📌 Potential Entry & Exit":
     show_potential_entry_exit()

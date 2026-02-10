@@ -19,6 +19,7 @@ DATA_FILES = {
 PAGE_OPTIONS = [
     "📈 Trendline Signals",
     "📏 Distance Signals",
+    "📚 All Signals",
     "📌 Potential Entry & Exit",
     "📊 Forward Testing Performance",
 ]

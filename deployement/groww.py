@@ -1,7 +1,7 @@
 import base64
 import os
 import csv
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import date
 
 import pyotp
@@ -87,6 +87,52 @@ class GrowwTradingClient:
 
         access_token = GrowwAPI.get_access_token(api_key=api_key, totp=current_otp)
         self.api = GrowwAPI(access_token)
+
+    # --------------------------------------------------------------------- #
+    # Symbol conversion (yfinance <-> Groww)
+    # --------------------------------------------------------------------- #
+
+    @staticmethod
+    def yf_symbol_to_groww(yf_symbol: str) -> Tuple[str, str]:
+        """
+        Convert yfinance symbol to (groww_trading_symbol, exchange).
+
+        Parameters
+        ----------
+        yf_symbol : str
+            Yahoo Finance symbol, e.g. "HCLTECH.NS", "RELIANCE.BO".
+
+        Returns
+        -------
+        tuple[str, str]
+            (trading_symbol, exchange). Exchange is "NSE" or "BSE".
+        """
+        if yf_symbol.endswith(".NS"):
+            return yf_symbol[:-3], "NSE"
+        if yf_symbol.endswith(".BO"):
+            return yf_symbol[:-3], "BSE"
+        return yf_symbol, "NSE"
+
+    @staticmethod
+    def groww_symbol_to_yf(trading_symbol: str, exchange: str = "NSE") -> str:
+        """
+        Convert Groww symbol + exchange to yfinance symbol.
+
+        Parameters
+        ----------
+        trading_symbol : str
+            Groww trading symbol, e.g. "HCLTECH", "RELIANCE".
+        exchange : str
+            Exchange code. Defaults to "NSE".
+
+        Returns
+        -------
+        str
+            Yahoo Finance symbol, e.g. "HCLTECH.NS", "RELIANCE.BO".
+        """
+        if exchange.upper() == "BSE":
+            return f"{trading_symbol}.BO"
+        return f"{trading_symbol}.NS"
 
     # --------------------------------------------------------------------- #
     # Data access helpers

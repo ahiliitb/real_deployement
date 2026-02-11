@@ -21,9 +21,8 @@ import pandas as pd
 import streamlit as st
 
 from config import TRADE_DEDUP_COLUMNS
-# Reuse helper functions from the legacy monitored_signals implementation,
-# now archived under old_code. This is only for metrics/price fetch logic.
-from old_code.monitored_signals import (
+# Shared metrics and price helpers (moved into utils package).
+from utils import (
     fetch_current_price_yfinance,
     display_monitored_trades_metrics,
 )
@@ -84,9 +83,8 @@ def _get_data_fetch_date() -> date | None:
 
 def _update_potential_prices(progress_callback=None) -> None:
     """
-    Update Current_Price for all symbols in potential_entry and potential_exit CSVs.
-
-    Uses the same yfinance helper as the Monitored Trades page.
+    Update Today_Price for all symbols in potential_entry and potential_exit CSVs
+    using latest prices from stock_data/INDIA.
     """
     paths = [POTENTIAL_ENTRY_CSV, POTENTIAL_EXIT_CSV]
     all_records: List[Dict[str, Any]] = []
@@ -116,7 +114,7 @@ def _update_potential_prices(progress_callback=None) -> None:
         price = fetch_current_price_yfinance(symbol)
         success = price is not None
         if success:
-            rec["Current_Price"] = float(price)
+            rec["Today_Price"] = float(price)
             updated_count += 1
         processed += 1
         if progress_callback:
@@ -127,11 +125,13 @@ def _update_potential_prices(progress_callback=None) -> None:
             "No symbols could be updated. Check internet connection and that symbols are valid."
         )
 
-    # Write back to individual CSVs
+    # Write back to individual CSVs (drop any transient columns)
     for path, start, end in index_slices:
         if start == end:
             continue
         subset = all_records[start:end]
+        for rec in subset:
+            rec.pop("Current_Price", None)
         _save_potential_to_csv(path, subset)
 
 
@@ -160,18 +160,9 @@ def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
     else:
         df["Status"] = "Open"
 
-    # If live Current_Price is missing, fall back to Today_Price from source CSV
-    if "Current_Price" not in df.columns:
-        if "Today_Price" in df.columns:
-            df["Current_Price"] = df["Today_Price"]
-    else:
-        if "Today_Price" in df.columns:
-            df["Current_Price"] = df["Current_Price"].fillna(df["Today_Price"])
-
-    # Numeric conversions for key fields
+    # Numeric conversions for key fields (use Today_Price as the live price column)
     numeric_cols = [
         "Signal_Price",
-        "Current_Price",
         "Today_Price",
         "Exit_Price",
         "Win_Rate",
@@ -210,7 +201,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
     Display trades table for potential signals.
 
     This is adapted from monitored_signals.display_trades_table, but:
-    - Uses column label 'Today Price' instead of 'Current_Price'.
+    - Uses column label 'Today Price' backed by the Today_Price column.
     """
     if df.empty:
         st.warning(f"No {title.lower()} to display")
@@ -241,7 +232,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
                         if signal_type == "SHORT":
                             profit = -profit
             elif row.get("Status") == "Open":
-                current_price = row.get("Current_Price")
+                current_price = row.get("Today_Price")
                 if (
                     pd.notna(signal_price)
                     and pd.notna(current_price)
@@ -291,7 +282,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
             "Interval": row.get("Interval", ""),
             "Signal_Date": row.get("Signal_Date", ""),
             "Signal_Price": row.get("Signal_Price", ""),
-            "Today Price": row.get("Current_Price", ""),  # renamed for UI
+            "Today Price": row.get("Today_Price", ""),
             "Profit (%)": profit,
             "Holding Period (days)": holding_days,
             "Status": row.get("Status", ""),
@@ -403,7 +394,7 @@ def show_potential_entry_exit() -> None:
     if st.sidebar.button(
         "🔄 Update Prices (Potential)",
         key="update_potential_prices_btn",
-        help="Fetch latest prices for all potential entry/exit signals via yfinance",
+        help="Fetch latest prices for all potential entry/exit signals from local stock_data/INDIA files",
     ):
         total_records = len(df_entry) + len(df_exit)
         if total_records == 0:

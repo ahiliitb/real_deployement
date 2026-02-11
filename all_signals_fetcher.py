@@ -5,6 +5,7 @@ import pandas as pd
 
 from config import INDIA_DATA_DIR, DATA_FILES, TRADE_DEDUP_COLUMNS
 from entry_exit_fetcher import get_latest_dated_file_path, build_standard_record
+from utils import fetch_current_price_yfinance
 
 
 ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
@@ -33,36 +34,103 @@ def get_trade_dedup_key_from_record(record: Dict[str, Any]) -> str:
 
 def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     """
-    Save records to CSV, including the full original Distance/Trendline columns.
+    Save records to CSV using **only** the columns required by the app.
 
-    Each record contains:
-    - Standardized fields (Symbol, Signal_Type, Win_Rate, etc.)
-    - Raw_Data: the original CSV row as a dict
-
-    This function flattens Raw_Data into top-level columns so that
-    all_signals.csv contains the complete original data (plus helper columns).
+    We intentionally avoid dumping the entire raw Distance/Trendline rows
+    to keep `all_signals.csv` compact and focused on:
+    - Standardised signal fields used in entry/exit logic and UI tables.
+    - A stable, explicit column order.
     """
     if not records:
         pd.DataFrame().to_csv(path, index=False)
         return
 
+    # Work on shallow copies and drop Raw_Data (we don't flatten it anymore).
     flattened: List[Dict[str, Any]] = []
     for rec in records:
         rec_copy = dict(rec)
-        raw = rec_copy.pop("Raw_Data", None)
-        if isinstance(raw, dict):
-            # Only add raw-data columns that don't already exist on the record
-            for k, v in raw.items():
-                if k not in rec_copy:
-                    rec_copy[k] = v
+        rec_copy.pop("Raw_Data", None)
         flattened.append(rec_copy)
 
     df = pd.DataFrame(flattened)
+
+    # Drop legacy open-price columns if present
+    cols_to_drop = [c for c in ("Signal_Open_Price", "Signal Open Price") if c in df.columns]
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
+
+    # Keep only the core columns actually used by the codebase.
+    core_columns = [
+        "Symbol",
+        "Signal_Type",
+        "Signal_Date",
+        "Signal_Price",
+        "Win_Rate",
+        "Number_Of_Trades",
+        "Win_Rate_Display",
+        "Today_Price",
+        "Exit_Signal_Raw",
+        "Function",
+        "Interval",
+        "PE_Ratio",
+        "Industry_PE",
+        "Last_Quarter_Profit",
+        "Last_Year_Same_Quarter_Profit",
+        "Strategy_CAGR",
+        "Strategy_Sharpe",
+        "TrendPulse_Start_End",
+        "TrendPulse_Start_Price",
+        "TrendPulse_End_Price",
+        "Exit_Date",
+        "Exit_Price",
+        "Dedup_Key",
+    ]
+
+    existing_cols = [c for c in core_columns if c in df.columns]
+    df = df[existing_cols]
 
     # Sort newest first by Signal_Date if present
     if "Signal_Date" in df.columns:
         df = df.sort_values(by="Signal_Date", ascending=False, na_position="last")
 
+    df.to_csv(path, index=False)
+
+
+def update_today_prices_for_all_signals(path: str) -> None:
+    """
+    After all_signals.csv is (re)built, update today's price for each symbol.
+
+    This writes/refreshes the `Today_Price` column using the shared
+    helper in utils, which reads prices from local stock_data/INDIA.
+    """
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return
+
+    try:
+        df = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return
+
+    if df.empty or "Symbol" not in df.columns:
+        return
+
+    prices: List[float | None] = []
+    for _, row in df.iterrows():
+        symbol = str(row.get("Symbol", "")).strip()
+        if not symbol:
+            prices.append(row.get("Today_Price"))
+            continue
+        price = fetch_current_price_yfinance(symbol)
+        if price is None:
+            prices.append(row.get("Today_Price"))
+        else:
+            # round to 2 decimal places for storage
+            prices.append(round(float(price), 2))
+
+    df["Today_Price"] = prices
+    # Drop any legacy Current_Price column so the CSV only has Today_Price
+    if "Current_Price" in df.columns:
+        df = df.drop(columns=["Current_Price"])
     df.to_csv(path, index=False)
 
 
@@ -114,6 +182,9 @@ def main() -> None:
 
     # Save back to CSV
     save_records_to_csv(ALL_SIGNALS_CSV, list(merged_by_key.values()))
+
+    # After building all_signals.csv, automatically refresh today's prices
+    update_today_prices_for_all_signals(ALL_SIGNALS_CSV)
 
 
 if __name__ == "__main__":

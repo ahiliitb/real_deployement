@@ -100,6 +100,19 @@ else
     echo "   ⚠️  data_fetch_datetime.json not found in $SOURCE_INDIA_DIR"
 fi
 
+# Copy stock price cache from MindWealth to local stock_data/INDIA
+echo "💾 Copying stock price cache to stock_data/INDIA..."
+SOURCE_CACHE_DIR="../MindWealth/cache/INDIA"
+TARGET_STOCK_DATA_DIR="stock_data/INDIA"
+if [ -d "$SOURCE_CACHE_DIR" ]; then
+    mkdir -p "$TARGET_STOCK_DATA_DIR"
+    # -r to recurse, -u to only overwrite older files
+    cp -ru "$SOURCE_CACHE_DIR/"* "$TARGET_STOCK_DATA_DIR/" || true
+    echo "   ✅ Stock cache copied from $SOURCE_CACHE_DIR to $TARGET_STOCK_DATA_DIR"
+else
+    echo "   ⚠️  Stock cache directory $SOURCE_CACHE_DIR not found; skipping stock_data copy"
+fi
+
 echo "✅ Trade update (file copy) completed!"
 
 # Step 3: Enrich Trendline and Distance CSVs with PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit
@@ -132,9 +145,9 @@ else
     echo "   ⚠️  Potential entry/exit update had warnings (see above)"
 fi
 
-# Step 6: Update Today Price for potential_entry.csv and potential_exit.csv (same logic as Potential page button)
+# Step 6: Update Today Price for potential_entry.csv, potential_exit.csv, and all_signals.csv
 echo ""
-echo "💰 Updating Today Price for potential entry/exit..."
+echo "💰 Updating Today Price for potential entry/exit and all signals..."
 python3 - << 'PY'
 import sys
 import os
@@ -142,14 +155,21 @@ import os
 sys.path.insert(0, '.')
 
 from page_functions.potential_signals import _update_potential_prices
+from page_functions.all_signals import _update_all_signals_prices
 
 try:
     _update_potential_prices()
     print("   ✅ Today Price updated for potential_entry.csv and potential_exit.csv")
 except Exception as e:
     print(f"   ⚠️  Failed to update Today Price for potential CSVs: {e}")
+
+try:
+    _update_all_signals_prices()
+    print("   ✅ Today Price updated for all_signals.csv")
+except Exception as e:
+    print(f"   ⚠️  Failed to update Today Price for all_signals.csv: {e}")
 PY
 
 echo ""
 echo "✅ Report generation completed!"
-echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, potential entry/exit CSVs with updated Today Price."
+echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, and fresh potential entry/exit CSVs with updated Today Price."

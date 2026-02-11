@@ -10,6 +10,7 @@ from config import INDIA_DATA_DIR, DATA_FILES, TRADE_DEDUP_COLUMNS
 
 POTENTIAL_ENTRY_CSV = os.path.join(INDIA_DATA_DIR, "potential_entry.csv")
 POTENTIAL_EXIT_CSV = os.path.join(INDIA_DATA_DIR, "potential_exit.csv")
+ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
 
 
 def get_latest_dated_file_path(data_dir: str, suffix: str) -> Optional[str]:
@@ -225,7 +226,6 @@ def build_standard_record(row: pd.Series, function_name: str) -> Dict[str, Any]:
         "Signal_Type": signal_info["Signal_Type"],
         "Signal_Date": signal_info["Signal_Date"],
         "Signal_Price": signal_info["Signal_Price"],
-        "Signal_Open_Price": row.get("Signal Open Price"),
         "Win_Rate": win_rate,
         "Number_Of_Trades": num_trades,
         "Win_Rate_Display": f"{win_rate:.2f}%" if win_rate is not None else "",
@@ -297,11 +297,25 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     if "no exit yet" not in exit_raw:
         return False
 
-    # Today vs signal price difference < 1%
-    pct_diff = record.get("Today_vs_Signal_Pct")
-    if pct_diff is None:
+    # Today vs signal price difference band based on the latest Today_Price.
+    # NOTE: We use the **signed** percentage (no abs) and keep only trades
+    # where the price is between -3% and +1% vs the signal price:
+    # - Reject if already >= +1% above (too much unrealised profit taken)
+    # - Reject if <= -3% below (too deep a dip from signal)
+    price_now = record.get("Today_Price")
+    signal_price = record.get("Signal_Price")
+    if price_now is None or signal_price is None:
         return False
-    if pct_diff >= 1.0:
+    try:
+        price_now = float(price_now)
+        signal_price = float(signal_price)
+    except (TypeError, ValueError):
+        return False
+    if signal_price <= 0:
+        return False
+    pct_diff = (price_now - signal_price) / signal_price * 100.0
+    # Reject if price is at least 1% ABOVE, or more than 3% BELOW, signal price
+    if pct_diff >= 1.0 or pct_diff <= -3.0:
         return False
 
     # PE conditions
@@ -334,6 +348,82 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     return True
 
 
+def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
+    """
+    Apply exit conditions derived from entry conditions, with the following differences:
+
+    - Exit signal must NOT be "No Exit Yet" (i.e. must have Exit_Date and Exit_Price).
+    - (fetch_date - Exit_Date) in days must be <= 3.
+    - No profit > 1% filter here; all qualifying exits are kept.
+    """
+    # Must satisfy the same base filters as entries (function quality, fundamentals, etc.),
+    # except for the "no exit yet" requirement and without any profit > 1% rule.
+
+    # Long only
+    signal_type = str(record.get("Signal_Type", "")).strip().upper()
+    if signal_type != "LONG":
+        return False
+
+    # Win rate & number of trades
+    win_rate = record.get("Win_Rate")
+    num_trades = record.get("Number_Of_Trades")
+    if win_rate is None or num_trades is None:
+        return False
+    if win_rate <= 80.0:
+        return False
+    if num_trades <= 6:
+        return False
+
+    # Exit signal must be present (not "No Exit Yet")
+    exit_raw = str(record.get("Exit_Signal_Raw", "")).strip().lower()
+    if not exit_raw or "no exit yet" in exit_raw:
+        return False
+
+    # Exit_Date within last 3 days relative to fetch_date
+    exit_date_str = record.get("Exit_Date")
+    if not exit_date_str:
+        return False
+    try:
+        exit_dt = datetime.strptime(str(exit_date_str).strip()[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False
+    if (fetch_date - exit_dt).days > 3:
+        return False
+
+    # Require Exit_Price to be present
+    if record.get("Exit_Price") is None:
+        return False
+
+    # PE conditions (same as entry)
+    pe_ratio = record.get("PE_Ratio")
+    industry_pe = record.get("Industry_PE")
+    if pe_ratio is None or industry_pe is None:
+        return False
+    if not (industry_pe > pe_ratio):
+        return False
+    if not (pe_ratio < 50.0):
+        return False
+
+    # Profit condition (same as entry)
+    last_q = record.get("Last_Quarter_Profit")
+    last_year_q = record.get("Last_Year_Same_Quarter_Profit")
+    if last_q is None or last_year_q is None:
+        return False
+    if not (last_q > 0.5 * last_year_q):
+        return False
+
+    # Trendline-specific TrendPulse condition (same as entry)
+    if str(record.get("Function", "")).lower() == "trendline":
+        start_price = record.get("TrendPulse_Start_Price")
+        end_price = record.get("TrendPulse_End_Price")
+        if start_price is None or end_price is None:
+            return False
+        if not (start_price > end_price):
+            return False
+
+    return True
+
+
 def load_existing_csv(path: str) -> pd.DataFrame:
     """Load a CSV if it exists, otherwise return empty DataFrame."""
     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -346,15 +436,11 @@ def load_existing_csv(path: str) -> pd.DataFrame:
 
 def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     """
-    Save records to CSV, including the full original Distance/Trendline columns.
+    Save potential entry/exit records to CSV with only the fields
+    required by the Potential pages and entry/exit logic.
 
-    Each record contains:
-    - Standardized fields (Symbol, Signal_Type, Win_Rate, etc.)
-    - Raw_Data: the original CSV row as a dict
-
-    This function flattens Raw_Data into top-level columns so that
-    potential_entry.csv / potential_exit.csv contain the complete
-    original data (plus our helper columns), as requested.
+    We deliberately do **not** carry over every raw source column here
+    to keep `potential_entry.csv` / `potential_exit.csv` small and clean.
     """
     if not records:
         pd.DataFrame().to_csv(path, index=False)
@@ -363,43 +449,62 @@ def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     flattened: List[Dict[str, Any]] = []
     for rec in records:
         rec_copy = dict(rec)
-        raw = rec_copy.pop("Raw_Data", None)
-        if isinstance(raw, dict):
-            # Only add raw-data columns that don't already exist on the record
-            for k, v in raw.items():
-                if k not in rec_copy:
-                    rec_copy[k] = v
+        rec_copy.pop("Raw_Data", None)
         flattened.append(rec_copy)
 
     df = pd.DataFrame(flattened)
+
+    core_columns = [
+        "Symbol",
+        "Signal_Type",
+        "Signal_Date",
+        "Signal_Price",
+        "Win_Rate",
+        "Number_Of_Trades",
+        "Win_Rate_Display",
+        "Today_Price",
+        "Exit_Signal_Raw",
+        "Function",
+        "Interval",
+        "PE_Ratio",
+        "Industry_PE",
+        "Last_Quarter_Profit",
+        "Last_Year_Same_Quarter_Profit",
+        "Strategy_CAGR",
+        "Strategy_Sharpe",
+        "TrendPulse_Start_End",
+        "TrendPulse_Start_Price",
+        "TrendPulse_End_Price",
+        "Exit_Date",
+        "Exit_Price",
+        "Dedup_Key",
+    ]
+
+    existing_cols = [c for c in core_columns if c in df.columns]
+    df = df[existing_cols]
+
     df.to_csv(path, index=False)
 
 
 def main() -> None:
-    # Locate latest Distance and Trendline files
-    distance_suffix = DATA_FILES.get("distance_suffix", "Distance.csv")
-    trend_suffix = DATA_FILES.get("trends_suffix", "Trendline.csv")
+    """
+    Build / update potential_entry.csv and potential_exit.csv **from all_signals.csv**.
 
-    distance_path = get_latest_dated_file_path(INDIA_DATA_DIR, distance_suffix)
-    trend_path = get_latest_dated_file_path(INDIA_DATA_DIR, trend_suffix)
+    The entry/exit conditions remain exactly the same as before; only the
+    data source changes from raw Distance/Trendline CSVs to the
+    deduplicated, enriched `all_signals.csv` produced by all_signals_fetcher.py.
+    """
+    all_signals_df = load_existing_csv(ALL_SIGNALS_CSV)
+    if all_signals_df.empty:
+        raise FileNotFoundError("all_signals.csv is empty or missing. Run all_signals_fetcher.py first.")
 
-    if distance_path is None and trend_path is None:
-        raise FileNotFoundError("No Distance or Trendline files found in INDIA data directory.")
-
-    dfs_with_function: List[Tuple[pd.DataFrame, str]] = []
-    if distance_path:
-        df_distance = pd.read_csv(distance_path)
-        dfs_with_function.append((df_distance, "Distance"))
-    if trend_path:
-        df_trend = pd.read_csv(trend_path)
-        dfs_with_function.append((df_trend, "Trendline"))
-
-    # Build standardized records from both files
+    # all_signals.csv already contains standardized fields (Symbol, Signal_Type, Win_Rate, etc.)
+    # plus Dedup_Key from all_signals_fetcher. Ensure Dedup_Key exists for every record.
     all_records: List[Dict[str, Any]] = []
-    for df, fn_name in dfs_with_function:
-        for _, row in df.iterrows():
-            record = build_standard_record(row, fn_name)
-            all_records.append(record)
+    for rec in all_signals_df.to_dict(orient="records"):
+        if not rec.get("Dedup_Key"):
+            rec["Dedup_Key"] = get_trade_dedup_key_from_record(rec)
+        all_records.append(rec)
 
     # --- ENTRY LOGIC: build/update potential_entry.csv ---
     existing_entry_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
@@ -430,125 +535,18 @@ def main() -> None:
         # If no entries at all, ensure file exists but stays empty
         pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
 
-    # --- EXIT LOGIC: move resolved trades to potential_exit.csv ---
-    # Reload entry DataFrame to ensure consistency
-    entry_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
-    if not entry_df.empty:
-        entry_records = entry_df.to_dict(orient="records")
-        entry_key_to_indices: Dict[str, List[int]] = {}
-        for idx, rec in enumerate(entry_records):
-            key = get_trade_dedup_key_from_record(rec)
-            rec["Dedup_Key"] = key
-            entry_key_to_indices.setdefault(key, []).append(idx)
-
-        # Build records that now have an exit signal
-        exit_candidate_records: List[Dict[str, Any]] = []
-        for record in all_records:
-            exit_raw = str(record.get("Exit_Signal_Raw", "")).strip().lower()
-            if not exit_raw or "no exit yet" in exit_raw:
-                continue
-            key = record["Dedup_Key"]
-            if key in entry_key_to_indices:
-                exit_candidate_records.append(record)
-
-        if exit_candidate_records:
-            # Load existing potential_exit.csv
-            existing_exit_df = load_existing_csv(POTENTIAL_EXIT_CSV)
-            existing_exit_records: List[Dict[str, Any]] = []
-            if not existing_exit_df.empty:
-                existing_exit_records = existing_exit_df.to_dict(orient="records")
-
-            # Build new exit records and mark indices to remove from entry
-            indices_to_remove: List[int] = []
-            for exit_rec in exit_candidate_records:
-                key = exit_rec["Dedup_Key"]
-                indices = entry_key_to_indices.get(key, [])
-                if not indices:
-                    continue
-                base_idx = indices[0]
-                base_rec = entry_records[base_idx].copy()
-                base_rec["Exit_Signal_Raw"] = exit_rec.get("Exit_Signal_Raw")
-                base_rec["Exit_Date"] = exit_rec.get("Exit_Date")
-                base_rec["Exit_Price"] = exit_rec.get("Exit_Price")
-                base_rec["Today_Price"] = exit_rec.get("Today_Price", base_rec.get("Today_Price"))
-                base_rec["Today_vs_Signal_Pct"] = exit_rec.get(
-                    "Today_vs_Signal_Pct", base_rec.get("Today_vs_Signal_Pct")
-                )
-                base_rec["Today_vs_Signal_Pct_Signed"] = exit_rec.get(
-                    "Today_vs_Signal_Pct_Signed", base_rec.get("Today_vs_Signal_Pct_Signed")
-                )
-                existing_exit_records.append(base_rec)
-                indices_to_remove.extend(indices)
-
-            if indices_to_remove:
-                indices_to_remove = sorted(set(indices_to_remove))
-                entry_records_after = [
-                    rec for idx, rec in enumerate(entry_records) if idx not in indices_to_remove
-                ]
-                if entry_records_after:
-                    save_records_to_csv(POTENTIAL_ENTRY_CSV, entry_records_after)
-                else:
-                    pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
-
-                if existing_exit_records:
-                    save_records_to_csv(POTENTIAL_EXIT_CSV, existing_exit_records)
-                else:
-                    pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
-
-    # --- CLEANUP: remove entries with profit > 1%, exits older than 3 days ---
+    # --- EXIT LOGIC: select exit trades directly from all_signals.csv ---
     fetch_date = date.today()
 
-    # Potential Entry: remove if profit > 1% (LONG: Today_Price above Signal_Price by > 1%)
-    entry_clean_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
-    if not entry_clean_df.empty:
-        entry_clean_records = entry_clean_df.to_dict(orient="records")
-        keep_entries: List[Dict[str, Any]] = []
-        for rec in entry_clean_records:
-            today_price = rec.get("Today_Price")
-            signal_price = rec.get("Signal_Price")
-            if today_price is None or signal_price is None:
-                keep_entries.append(rec)
-                continue
-            try:
-                today_price = float(today_price)
-                signal_price = float(signal_price)
-            except (TypeError, ValueError):
-                keep_entries.append(rec)
-                continue
-            if signal_price <= 0:
-                keep_entries.append(rec)
-                continue
-            profit_pct = (today_price - signal_price) / signal_price * 100
-            if profit_pct <= 1.0:
-                keep_entries.append(rec)
-        if len(keep_entries) != len(entry_clean_records):
-            if keep_entries:
-                save_records_to_csv(POTENTIAL_ENTRY_CSV, keep_entries)
-            else:
-                pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
+    exit_records: List[Dict[str, Any]] = []
+    for record in all_records:
+        if exit_conditions(record, fetch_date):
+            exit_records.append(record)
 
-    # Potential Exit: remove if (fetch_date - exit_date) > 3 days
-    exit_clean_df = load_existing_csv(POTENTIAL_EXIT_CSV)
-    if not exit_clean_df.empty:
-        exit_clean_records = exit_clean_df.to_dict(orient="records")
-        keep_exits: List[Dict[str, Any]] = []
-        for rec in exit_clean_records:
-            exit_date_str = rec.get("Exit_Date")
-            if not exit_date_str:
-                keep_exits.append(rec)
-                continue
-            try:
-                exit_dt = datetime.strptime(str(exit_date_str).strip()[:10], "%Y-%m-%d").date()
-            except (ValueError, TypeError):
-                keep_exits.append(rec)
-                continue
-            if (fetch_date - exit_dt).days <= 3:
-                keep_exits.append(rec)
-        if len(keep_exits) != len(exit_clean_records):
-            if keep_exits:
-                save_records_to_csv(POTENTIAL_EXIT_CSV, keep_exits)
-            else:
-                pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
+    if exit_records:
+        save_records_to_csv(POTENTIAL_EXIT_CSV, exit_records)
+    else:
+        pd.DataFrame().to_csv(POTENTIAL_EXIT_CSV, index=False)
 
 
 if __name__ == "__main__":

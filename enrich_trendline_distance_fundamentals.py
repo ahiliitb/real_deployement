@@ -158,6 +158,10 @@ def enrich_csv_with_fundamentals(file_path):
         return 0, str(e)
     if df.empty:
         return 0, None
+    # Remove legacy "open price" columns if present, as they're no longer needed
+    cols_to_drop = [c for c in ("Signal_Open_Price", "Signal Open Price") if c in df.columns]
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
     # First column (index 0) has symbol
     updated = 0
     pe_list, ind_pe_list, lq_list, ly_list = [], [], [], []

@@ -15,7 +15,10 @@ import pandas as pd
 import streamlit as st
 
 from config import TRADE_DEDUP_COLUMNS
-from old_code.monitored_signals import display_monitored_trades_metrics
+from utils import (
+    display_monitored_trades_metrics,
+    fetch_current_price_yfinance,
+)
 from page_functions.potential_signals import (
     _prepare_dataframe as prepare_potential_dataframe,
     display_trades_table_potential,
@@ -45,12 +48,100 @@ def _load_all_signals_from_csv() -> List[Dict[str, Any]]:
         return []
 
 
+def _save_all_signals_to_csv(records: List[Dict[str, Any]]) -> None:
+    """Save all-signals records back to CSV."""
+    try:
+        if not records:
+            pd.DataFrame().to_csv(ALL_SIGNALS_CSV, index=False)
+        else:
+            df = pd.DataFrame(records)
+            df.to_csv(ALL_SIGNALS_CSV, index=False)
+    except Exception as e:
+        st.error(f"Error saving all_signals.csv: {e}")
+
+
+def _update_all_signals_prices(progress_callback=None) -> None:
+    """
+    Update Today_Price for all symbols in all_signals.csv.
+
+    Prices are sourced from local stock_data/INDIA CSV files via utils.
+    """
+    records = _load_all_signals_from_csv()
+    total = len(records)
+    if total == 0:
+        raise ValueError("No all-signals records to update.")
+
+    updated_count = 0
+    processed = 0
+
+    for rec in records:
+        symbol = str(rec.get("Symbol", "")).strip()
+        if not symbol:
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, total, "(empty)", False, None)
+            continue
+
+        price = fetch_current_price_yfinance(symbol)
+        success = price is not None
+        if success:
+            rec["Today_Price"] = float(price)
+            updated_count += 1
+
+        processed += 1
+        if progress_callback:
+            progress_callback(processed, total, symbol, success, price)
+
+    if updated_count == 0:
+        raise ValueError(
+            "No symbols could be updated. Check internet connection and that symbols are valid."
+        )
+
+    _save_all_signals_to_csv(records)
+
+
 def show_all_signals() -> None:
     """Streamlit page: All Distance & Trendline Signals (deduplicated)."""
     st.title("📚 All Signals (Distance & Trendline)")
     st.markdown("---")
 
     records = _load_all_signals_from_csv()
+
+    # Sidebar controls for this page
+    st.sidebar.markdown("### 🔧 Controls (All Signals)")
+    if st.sidebar.button(
+        "🔄 Update Prices (All Signals)",
+        key="update_all_signals_prices_btn",
+        help="Fetch latest prices for all rows on the All Signals page from local stock_data/INDIA files",
+    ):
+        total_records = len(records)
+        if total_records == 0:
+            st.sidebar.warning("No all-signals records to update.")
+        else:
+            progress_placeholder = st.sidebar.empty()
+            progress_bar = st.sidebar.progress(0, text="Starting...")
+            status_text = st.sidebar.empty()
+
+            def on_progress(processed, total, symbol, success, price):
+                pct = processed / total if total else 0
+                progress_bar.progress(pct, text=f"Updating {processed}/{total}")
+                if success and price is not None:
+                    status_text.caption(
+                        f"✓ {symbol}: {price:.2f} — {processed} of {total} updated"
+                    )
+                else:
+                    status_text.caption(
+                        f"— {symbol or '(empty)'}: no price — {processed}/{total} processed"
+                    )
+
+            try:
+                _update_all_signals_prices(progress_callback=on_progress)
+                progress_bar.progress(1.0, text="Done!")
+                progress_placeholder.success("✅ Prices updated for all-signals data.")
+            except Exception as e:
+                progress_placeholder.error(f"Update failed: {e}")
+            st.rerun()
+
     if not records:
         st.info(
             "No signals found in `all_signals.csv`. "

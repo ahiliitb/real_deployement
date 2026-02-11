@@ -5,42 +5,21 @@ from typing import Dict, Any, List, Optional, Tuple
 
 import pandas as pd
 
-from config import INDIA_DATA_DIR, DATA_FILES, TRADE_DEDUP_COLUMNS
-
-
-POTENTIAL_ENTRY_CSV = os.path.join(INDIA_DATA_DIR, "potential_entry.csv")
-POTENTIAL_EXIT_CSV = os.path.join(INDIA_DATA_DIR, "potential_exit.csv")
-ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
-
-
-def get_latest_dated_file_path(data_dir: str, suffix: str) -> Optional[str]:
-    """
-    Find the latest dated file in data_dir with pattern YYYY-MM-DD_<suffix>.
-    Example: 2026-02-09_Distance.csv
-    """
-    if not os.path.isdir(data_dir):
-        return None
-
-    latest_date: Optional[datetime] = None
-    latest_path: Optional[str] = None
-
-    for fname in os.listdir(data_dir):
-        if not fname.endswith(suffix):
-            continue
-        # Expect pattern: YYYY-MM-DD_<suffix>
-        parts = fname.split("_", 1)
-        if len(parts) != 2:
-            continue
-        date_str, _ = parts
-        try:
-            d = datetime.strptime(date_str, "%Y-%m-%d")
-        except ValueError:
-            continue
-        if latest_date is None or d > latest_date:
-            latest_date = d
-            latest_path = os.path.join(data_dir, fname)
-
-    return latest_path
+from config import (
+    INDIA_DATA_DIR,
+    DATA_FILES,
+    TRADE_DEDUP_COLUMNS,
+    POTENTIAL_ENTRY_CSV,
+    POTENTIAL_EXIT_CSV,
+    ALL_SIGNALS_CSV,
+    ENTRY_EXIT_MIN_WIN_RATE,
+    ENTRY_EXIT_MIN_NUM_TRADES,
+    ENTRY_PRICE_BAND_PCT_ABOVE,
+    ENTRY_PRICE_BAND_PCT_BELOW,
+    ENTRY_EXIT_MAX_PE_RATIO,
+    ENTRY_EXIT_PROFIT_RATIO,
+    EXIT_RECENCY_DAYS,
+)
 
 
 def parse_signal_column(value: str) -> Dict[str, Any]:
@@ -62,7 +41,8 @@ def parse_signal_column(value: str) -> Dict[str, Any]:
         return result
 
     symbol = parts[0]
-    signal_type = parts[1]
+    raw_signal = parts[1].strip()
+    signal_type = "Short" if "short" in raw_signal.lower() else "Long"
     # Re-join remaining in case there were extra commas in symbol
     date_price_part = ",".join(parts[2:]).strip()
 
@@ -158,13 +138,12 @@ def parse_interval(value: Any) -> str:
 def get_trade_dedup_key_from_record(record: Dict[str, Any]) -> str:
     """
     Build deduplication key using TRADE_DEDUP_COLUMNS.
-    Mirrors logic in page_functions.monitored_signals.get_trade_dedup_key.
     """
     parts: List[str] = []
     for col in TRADE_DEDUP_COLUMNS:
         val = str(record.get(col, "")).strip()
         if col == "Signal_Type":
-            val = "SHORT" if "SHORT" in val.upper() else "LONG"
+            val = "Short" if "short" in val.lower() else "Long"
         parts.append(val)
     return "|".join(parts)
 
@@ -287,9 +266,9 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     num_trades = record.get("Number_Of_Trades")
     if win_rate is None or num_trades is None:
         return False
-    if win_rate <= 80.0:
+    if win_rate <= ENTRY_EXIT_MIN_WIN_RATE:
         return False
-    if num_trades <= 6:
+    if num_trades <= ENTRY_EXIT_MIN_NUM_TRADES:
         return False
 
     # Exit signal must be "No Exit Yet"
@@ -314,8 +293,8 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     if signal_price <= 0:
         return False
     pct_diff = (price_now - signal_price) / signal_price * 100.0
-    # Reject if price is at least 1% ABOVE, or more than 3% BELOW, signal price
-    if pct_diff >= 1.0 or pct_diff <= -3.0:
+    # Reject if price is at least ENTRY_PRICE_BAND_PCT_ABOVE above, or more than |ENTRY_PRICE_BAND_PCT_BELOW| below, signal price
+    if pct_diff >= ENTRY_PRICE_BAND_PCT_ABOVE or pct_diff <= ENTRY_PRICE_BAND_PCT_BELOW:
         return False
 
     # PE conditions
@@ -325,7 +304,7 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
         return False
     if not (industry_pe > pe_ratio):
         return False
-    if not (pe_ratio < 50.0):
+    if not (pe_ratio < ENTRY_EXIT_MAX_PE_RATIO):
         return False
 
     # Profit condition
@@ -333,7 +312,7 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     last_year_q = record.get("Last_Year_Same_Quarter_Profit")
     if last_q is None or last_year_q is None:
         return False
-    if not (last_q > 0.5 * last_year_q):
+    if not (last_q > ENTRY_EXIT_PROFIT_RATIO * last_year_q):
         return False
 
     # Trendline-specific TrendPulse condition
@@ -356,9 +335,6 @@ def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
     - (fetch_date - Exit_Date) in days must be <= 3.
     - No profit > 1% filter here; all qualifying exits are kept.
     """
-    # Must satisfy the same base filters as entries (function quality, fundamentals, etc.),
-    # except for the "no exit yet" requirement and without any profit > 1% rule.
-
     # Long only
     signal_type = str(record.get("Signal_Type", "")).strip().upper()
     if signal_type != "LONG":
@@ -369,9 +345,9 @@ def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
     num_trades = record.get("Number_Of_Trades")
     if win_rate is None or num_trades is None:
         return False
-    if win_rate <= 80.0:
+    if win_rate <= ENTRY_EXIT_MIN_WIN_RATE:
         return False
-    if num_trades <= 6:
+    if num_trades <= ENTRY_EXIT_MIN_NUM_TRADES:
         return False
 
     # Exit signal must be present (not "No Exit Yet")
@@ -387,7 +363,7 @@ def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
         exit_dt = datetime.strptime(str(exit_date_str).strip()[:10], "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return False
-    if (fetch_date - exit_dt).days > 3:
+    if (fetch_date - exit_dt).days > EXIT_RECENCY_DAYS:
         return False
 
     # Require Exit_Price to be present
@@ -401,7 +377,7 @@ def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
         return False
     if not (industry_pe > pe_ratio):
         return False
-    if not (pe_ratio < 50.0):
+    if not (pe_ratio < ENTRY_EXIT_MAX_PE_RATIO):
         return False
 
     # Profit condition (same as entry)
@@ -409,7 +385,7 @@ def exit_conditions(record: Dict[str, Any], fetch_date: date) -> bool:
     last_year_q = record.get("Last_Year_Same_Quarter_Profit")
     if last_q is None or last_year_q is None:
         return False
-    if not (last_q > 0.5 * last_year_q):
+    if not (last_q > ENTRY_EXIT_PROFIT_RATIO * last_year_q):
         return False
 
     # Trendline-specific TrendPulse condition (same as entry)
@@ -438,9 +414,6 @@ def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     """
     Save potential entry/exit records to CSV with only the fields
     required by the Potential pages and entry/exit logic.
-
-    We deliberately do **not** carry over every raw source column here
-    to keep `potential_entry.csv` / `potential_exit.csv` small and clean.
     """
     if not records:
         pd.DataFrame().to_csv(path, index=False)
@@ -492,47 +465,27 @@ def main() -> None:
 
     The entry/exit conditions remain exactly the same as before; only the
     data source changes from raw Distance/Trendline CSVs to the
-    deduplicated, enriched `all_signals.csv` produced by all_signals_fetcher.py.
+    deduplicated, enriched `all_signals.csv` produced by utils.all_signals_fetcher.
     """
     all_signals_df = load_existing_csv(ALL_SIGNALS_CSV)
     if all_signals_df.empty:
-        raise FileNotFoundError("all_signals.csv is empty or missing. Run all_signals_fetcher.py first.")
+        raise FileNotFoundError("all_signals.csv is empty or missing. Run utils.all_signals_fetcher first.")
 
-    # all_signals.csv already contains standardized fields (Symbol, Signal_Type, Win_Rate, etc.)
-    # plus Dedup_Key from all_signals_fetcher. Ensure Dedup_Key exists for every record.
     all_records: List[Dict[str, Any]] = []
     for rec in all_signals_df.to_dict(orient="records"):
         if not rec.get("Dedup_Key"):
             rec["Dedup_Key"] = get_trade_dedup_key_from_record(rec)
         all_records.append(rec)
 
-    # --- ENTRY LOGIC: build/update potential_entry.csv ---
-    existing_entry_df = load_existing_csv(POTENTIAL_ENTRY_CSV)
-    existing_entry_records: List[Dict[str, Any]] = []
-    existing_keys = set()
-    if not existing_entry_df.empty:
-        existing_entry_records = existing_entry_df.to_dict(orient="records")
-        for rec in existing_entry_records:
-            key = get_trade_dedup_key_from_record(rec)
-            rec["Dedup_Key"] = key
-            existing_keys.add(key)
-
-    new_entry_records: List[Dict[str, Any]] = []
+    # --- ENTRY LOGIC: fully recompute potential_entry.csv from all_signals ---
+    entry_records: List[Dict[str, Any]] = []
     for record in all_records:
-        if not entry_conditions(record):
-            continue
-        key = record["Dedup_Key"]
-        if key in existing_keys:
-            # Already in potential_entry.csv
-            continue
-        new_entry_records.append(record)
-        existing_keys.add(key)
+        if entry_conditions(record):
+            entry_records.append(record)
 
-    updated_entry_records = existing_entry_records + new_entry_records
-    if updated_entry_records:
-        save_records_to_csv(POTENTIAL_ENTRY_CSV, updated_entry_records)
+    if entry_records:
+        save_records_to_csv(POTENTIAL_ENTRY_CSV, entry_records)
     else:
-        # If no entries at all, ensure file exists but stays empty
         pd.DataFrame().to_csv(POTENTIAL_ENTRY_CSV, index=False)
 
     # --- EXIT LOGIC: select exit trades directly from all_signals.csv ---
@@ -551,4 +504,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

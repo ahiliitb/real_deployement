@@ -4,7 +4,7 @@ All Signals Page
 Displays all deduplicated signals from:
 - trade_store/INDIA/all_signals.csv
 
-The CSV is maintained by all_signals_fetcher.py, which pulls from the
+The CSV is maintained by utils.all_signals_fetcher, which pulls from the
 latest Distance and Trendline CSVs and merges by dedup key.
 """
 
@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 import pandas as pd
 import streamlit as st
 
-from config import TRADE_DEDUP_COLUMNS
+from config import ALL_SIGNALS_CSV
 from utils import (
     display_monitored_trades_metrics,
     fetch_current_price_yfinance,
@@ -23,9 +23,6 @@ from page_functions.potential_signals import (
     _prepare_dataframe as prepare_potential_dataframe,
     display_trades_table_potential,
 )
-
-
-ALL_SIGNALS_CSV = "trade_store/INDIA/all_signals.csv"
 
 
 def _load_all_signals_from_csv() -> List[Dict[str, Any]]:
@@ -145,7 +142,7 @@ def show_all_signals() -> None:
     if not records:
         st.info(
             "No signals found in `all_signals.csv`. "
-            "Run `all_signals_fetcher.py` (or click 'Generate signals & refresh') first."
+            "Run 'Generate signals & refresh' (or utils.all_signals_fetcher) first."
         )
         return
 
@@ -184,10 +181,33 @@ def show_all_signals() -> None:
         st.warning("No signals match the current filters.")
         return
 
-    # Summary metrics and detailed table should match Potential Entry/Exit
-    st.markdown("### 📊 All Signals Summary")
-    display_monitored_trades_metrics(df, "All Intervals", "All Signals")
+    # Tabs: ALL | Open | Closed
+    tab_all, tab_open, tab_closed = st.tabs(["📊 All", "🟢 Open", "🔴 Closed"])
 
-    st.markdown("### 📋 Detailed Data Table — All Signals")
-    display_trades_table_potential(df, "All Signals")
+    with tab_all:
+        df_tab = df
+        st.markdown("### 📊 All Signals Summary")
+        display_monitored_trades_metrics(df_tab, "All Intervals", "All Signals")
+        st.markdown("### 📋 Detailed Data Table")
+        display_trades_table_potential(df_tab, "All Signals")
+
+    with tab_open:
+        df_open = df[df["Status"] == "Open"] if "Status" in df.columns else pd.DataFrame()
+        if df_open.empty:
+            st.info("No open trades match the current filters.")
+        else:
+            st.markdown("### 📊 Open Trades Summary")
+            display_monitored_trades_metrics(df_open, "All Intervals", "Open Signals")
+            st.markdown("### 📋 Detailed Data Table")
+            display_trades_table_potential(df_open, "Open Signals")
+
+    with tab_closed:
+        df_closed = df[df["Status"] == "Closed"] if "Status" in df.columns else pd.DataFrame()
+        if df_closed.empty:
+            st.info("No closed trades match the current filters.")
+        else:
+            st.markdown("### 📊 Closed Trades Summary")
+            display_monitored_trades_metrics(df_closed, "All Intervals", "Closed Signals")
+            st.markdown("### 📋 Detailed Data Table")
+            display_trades_table_potential(df_closed, "Closed Signals")
 

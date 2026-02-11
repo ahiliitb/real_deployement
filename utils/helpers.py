@@ -1,10 +1,5 @@
 import re
-import hashlib
 
-
-def generate_unique_hash(unique_str):
-    """Generate a unique hash for session state keys"""
-    return hashlib.md5(unique_str.encode()).hexdigest()[:8]
 
 def parse_symbol_signal_info(symbol_signal_info):
     """Parse symbol, signal type, date and price from CSV column"""
@@ -19,7 +14,8 @@ def parse_symbol_signal_info(symbol_signal_info):
             parts = symbol_signal_info.split(', ')
             if len(parts) >= 3:
                 symbol = parts[0].strip('"')
-                signal_type = parts[1].strip()
+                raw_signal = parts[1].strip()
+                signal_type = "Short" if "short" in raw_signal.lower() else "Long"
                 # Extract date and price from the third part
                 date_price_part = parts[2].strip(')"')
                 if ' (Price: ' in date_price_part:
@@ -48,26 +44,3 @@ def parse_win_rate_info(win_rate_info):
             if len(parts) >= 1:
                 win_rate = parts[0].strip('"') + "%"
     return win_rate
-
-
-def parse_exit_signal_info(exit_str):
-    """
-    Parse Exit Signal Date/Price column from CSV.
-    Returns (exit_date, exit_price) - both None if 'No Exit Yet' or unparseable.
-    Example: "2026-02-06 (Price: 168.45), 1.51% above" -> ("2026-02-06", 168.45)
-    """
-    if not exit_str or str(exit_str).strip() == 'nan':
-        return None, None
-    s = str(exit_str).strip()
-    if s.lower().startswith('no exit'):
-        return None, None
-    # Match YYYY-MM-DD (Price: NNN.NNN)
-    match = re.search(r'(\d{4}-\d{2}-\d{2})\s*\(Price:\s*([\d.]+)\)', s)
-    if match:
-        exit_date = match.group(1)
-        try:
-            exit_price = float(match.group(2))
-            return exit_date, exit_price
-        except (ValueError, TypeError):
-            return exit_date, None
-    return None, None

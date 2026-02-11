@@ -3,12 +3,10 @@ from typing import Dict, Any, List, Tuple
 
 import pandas as pd
 
-from config import INDIA_DATA_DIR, DATA_FILES, TRADE_DEDUP_COLUMNS
-from entry_exit_fetcher import get_latest_dated_file_path, build_standard_record
+from config import INDIA_DATA_DIR, DATA_FILES, TRADE_DEDUP_COLUMNS, ALL_SIGNALS_CSV
+from utils.data_loader import get_latest_dated_file_path
+from utils.entry_exit_fetcher import build_standard_record
 from utils import fetch_current_price_yfinance
-
-
-ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
 
 
 def load_existing_csv(path: str) -> pd.DataFrame:
@@ -27,7 +25,7 @@ def get_trade_dedup_key_from_record(record: Dict[str, Any]) -> str:
     for col in TRADE_DEDUP_COLUMNS:
         val = str(record.get(col, "")).strip()
         if col == "Signal_Type":
-            val = "SHORT" if "SHORT" in val.upper() else "LONG"
+            val = "Short" if "short" in val.lower() else "Long"
         parts.append(val)
     return "|".join(parts)
 
@@ -35,17 +33,11 @@ def get_trade_dedup_key_from_record(record: Dict[str, Any]) -> str:
 def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     """
     Save records to CSV using **only** the columns required by the app.
-
-    We intentionally avoid dumping the entire raw Distance/Trendline rows
-    to keep `all_signals.csv` compact and focused on:
-    - Standardised signal fields used in entry/exit logic and UI tables.
-    - A stable, explicit column order.
     """
     if not records:
         pd.DataFrame().to_csv(path, index=False)
         return
 
-    # Work on shallow copies and drop Raw_Data (we don't flatten it anymore).
     flattened: List[Dict[str, Any]] = []
     for rec in records:
         rec_copy = dict(rec)
@@ -54,12 +46,10 @@ def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
 
     df = pd.DataFrame(flattened)
 
-    # Drop legacy open-price columns if present
     cols_to_drop = [c for c in ("Signal_Open_Price", "Signal Open Price") if c in df.columns]
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
 
-    # Keep only the core columns actually used by the codebase.
     core_columns = [
         "Symbol",
         "Signal_Type",
@@ -89,7 +79,6 @@ def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
     existing_cols = [c for c in core_columns if c in df.columns]
     df = df[existing_cols]
 
-    # Sort newest first by Signal_Date if present
     if "Signal_Date" in df.columns:
         df = df.sort_values(by="Signal_Date", ascending=False, na_position="last")
 
@@ -99,9 +88,6 @@ def save_records_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
 def update_today_prices_for_all_signals(path: str) -> None:
     """
     After all_signals.csv is (re)built, update today's price for each symbol.
-
-    This writes/refreshes the `Today_Price` column using the shared
-    helper in utils, which reads prices from local stock_data/INDIA.
     """
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return
@@ -124,11 +110,9 @@ def update_today_prices_for_all_signals(path: str) -> None:
         if price is None:
             prices.append(row.get("Today_Price"))
         else:
-            # round to 2 decimal places for storage
             prices.append(round(float(price), 2))
 
     df["Today_Price"] = prices
-    # Drop any legacy Current_Price column so the CSV only has Today_Price
     if "Current_Price" in df.columns:
         df = df.drop(columns=["Current_Price"])
     df.to_csv(path, index=False)
@@ -137,10 +121,6 @@ def update_today_prices_for_all_signals(path: str) -> None:
 def main() -> None:
     """
     Build / update all_signals.csv from the latest Distance and Trendline CSVs.
-
-    - Uses TRADE_DEDUP_COLUMNS to deduplicate trades.
-    - If a key already exists, the row is updated with the latest data.
-    - If a key is new, the row is appended.
     """
     distance_suffix = DATA_FILES.get("distance_suffix", "Distance.csv")
     trend_suffix = DATA_FILES.get("trends_suffix", "Trendline.csv")
@@ -159,14 +139,12 @@ def main() -> None:
         df_trend = pd.read_csv(trend_path)
         dfs_with_function.append((df_trend, "Trendline"))
 
-    # Build standardized records from both files
     new_records: List[Dict[str, Any]] = []
     for df, fn_name in dfs_with_function:
         for _, row in df.iterrows():
             record = build_standard_record(row, fn_name)
             new_records.append(record)
 
-    # Load existing all_signals.csv and index by dedup key
     existing_df = load_existing_csv(ALL_SIGNALS_CSV)
     merged_by_key: Dict[str, Dict[str, Any]] = {}
 
@@ -175,18 +153,13 @@ def main() -> None:
             key = get_trade_dedup_key_from_record(rec)
             merged_by_key[key] = rec
 
-    # Merge / update with latest records
     for rec in new_records:
         key = rec["Dedup_Key"]
         merged_by_key[key] = rec
 
-    # Save back to CSV
     save_records_to_csv(ALL_SIGNALS_CSV, list(merged_by_key.values()))
-
-    # After building all_signals.csv, automatically refresh today's prices
     update_today_prices_for_all_signals(ALL_SIGNALS_CSV)
 
 
 if __name__ == "__main__":
     main()
-

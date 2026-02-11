@@ -6,18 +6,15 @@ Run after update_trade.sh so strategy cards can show these columns from the CSV.
 """
 
 import os
-import sys
 import time
-
-# Run from project root
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
 
 import pandas as pd
 import yfinance as yf
+
+from config import INDIA_DATA_DIR, DATA_FILES, YFINANCE_RATE_LIMIT_DELAY
 from utils.data_loader import get_latest_dated_file_path
-from config import INDIA_DATA_DIR, DATA_FILES
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def symbol_from_first_column(cell):
@@ -35,57 +32,45 @@ def symbol_from_first_column(cell):
 def fetch_additional_stock_data(symbol):
     """
     Fetch PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit
-    using yfinance. This is an inlined version of the helper previously defined
-    in the monitored trades module.
+    using yfinance.
     """
     try:
-        # Small delay to avoid rate limiting
-        time.sleep(0.5)
+        time.sleep(YFINANCE_RATE_LIMIT_DELAY)
 
         ticker = yf.Ticker(symbol)
-
         info = ticker.info or {}
 
-        # PE Ratio
         pe_ratio = info.get("trailingPE") or info.get("forwardPE") or "N/A"
 
-        # Industry/Sector for Industry PE approximation
         industry = info.get("industry", "Unknown")
         sector = info.get("sector", "Unknown")
 
         industry_pe_ratios = {
-            # Technology
             "Semiconductors": 25.0,
             "Software": 30.0,
             "Consumer Electronics": 20.0,
             "Computer Hardware": 22.0,
             "Information Technology Services": 28.0,
-            # Healthcare
             "Biotechnology": 35.0,
             "Drug Manufacturers": 18.0,
             "Medical Devices": 25.0,
             "Healthcare Plans": 15.0,
             "Medical Diagnostics & Research": 30.0,
-            # Financial Services
             "Banks": 12.0,
             "Insurance": 14.0,
             "Asset Management": 16.0,
             "Credit Services": 10.0,
             "Capital Markets": 18.0,
-            # Consumer Goods
             "Beverages": 20.0,
             "Food": 18.0,
             "Household & Personal Products": 22.0,
             "Tobacco": 15.0,
             "Apparel": 25.0,
-            # Energy
             "Oil & Gas": 8.0,
             "Utilities": 16.0,
-            # Industrials
             "Aerospace": 20.0,
             "Engineering": 22.0,
             "Manufacturing": 18.0,
-            # Default
             "Unknown": 20.0,
         }
 
@@ -93,9 +78,7 @@ def fetch_additional_stock_data(symbol):
             industry, industry_pe_ratios.get(sector, 20.0)
         )
 
-        # Quarterly financials for profit data
         quarterly_financials = ticker.quarterly_financials
-
         last_quarter_profit = "N/A"
         last_year_same_quarter_profit = "N/A"
 
@@ -105,7 +88,6 @@ def fetch_additional_stock_data(symbol):
             and "Net Income" in quarterly_financials.index
         ):
             net_income_series = quarterly_financials.loc["Net Income"]
-
             last_available_idx = None
             for i in range(len(net_income_series)):
                 val = net_income_series.iloc[i]
@@ -149,7 +131,7 @@ def fetch_additional_stock_data(symbol):
 
 
 def enrich_csv_with_fundamentals(file_path):
-    """Add PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit to CSV. Returns (rows_updated, error_message)."""
+    """Add PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit to CSV."""
     if not file_path or not os.path.isfile(file_path):
         return 0, "File not found"
     try:
@@ -158,11 +140,9 @@ def enrich_csv_with_fundamentals(file_path):
         return 0, str(e)
     if df.empty:
         return 0, None
-    # Remove legacy "open price" columns if present, as they're no longer needed
     cols_to_drop = [c for c in ("Signal_Open_Price", "Signal Open Price") if c in df.columns]
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
-    # First column (index 0) has symbol
     updated = 0
     pe_list, ind_pe_list, lq_list, ly_list = [], [], [], []
     for i, row in df.iterrows():
@@ -197,7 +177,7 @@ def enrich_csv_with_fundamentals(file_path):
 
 
 def main():
-    os.chdir(SCRIPT_DIR)
+    os.chdir(PROJECT_ROOT)
     print("📈 Enriching Trendline and Distance CSVs with PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit...")
     trend_path = get_latest_dated_file_path(INDIA_DATA_DIR, DATA_FILES["trends_suffix"])
     dist_path = get_latest_dated_file_path(INDIA_DATA_DIR, DATA_FILES["distance_suffix"])

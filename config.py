@@ -1,5 +1,7 @@
 # Configuration settings for the trading signals dashboard
 
+import os
+
 # Page configuration
 PAGE_CONFIG = {
     "page_title": "Trade Store Tables",
@@ -27,8 +29,31 @@ PAGE_OPTIONS = [
 # Card pagination settings (cards per tab; container height fixed, scroll to see all)
 CARDS_PER_PAGE = 30
 
-# New Exit Signals: max days between exit date and data fetch date to show in "New Exit Signals" (Monitored page)
-NEW_EXIT_SIGNALS_MAX_DAYS = 2
+# Data file paths (derived from INDIA_DATA_DIR)
+POTENTIAL_ENTRY_CSV = os.path.join(INDIA_DATA_DIR, "potential_entry.csv")
+POTENTIAL_EXIT_CSV = os.path.join(INDIA_DATA_DIR, "potential_exit.csv")
+ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
+DATA_FETCH_DATETIME_JSON = os.path.join(INDIA_DATA_DIR, "data_fetch_datetime.json")
+
+# Entry/Exit conditions (used by utils.entry_exit_fetcher)
+ENTRY_EXIT_MIN_WIN_RATE = 80.0
+ENTRY_EXIT_MIN_NUM_TRADES = 6
+ENTRY_PRICE_BAND_PCT_ABOVE = 1.0  # Reject if today price >= this % above signal price
+ENTRY_PRICE_BAND_PCT_BELOW = -3.0  # Reject if today price <= this % below signal price
+ENTRY_EXIT_MAX_PE_RATIO = 50.0
+ENTRY_EXIT_PROFIT_RATIO = 0.5  # Last_Quarter_Profit > this * Last_Year_Same_Quarter_Profit
+EXIT_RECENCY_DAYS = 3  # Exit_Date must be within this many days of fetch date
+
+# Filter defaults (Trendline/Distance sidebar sliders)
+DEFAULT_MIN_WIN_RATE = 70.0
+DEFAULT_MIN_SHARPE = -5.0
+WIN_RATE_SLIDER_MAX = 100.0
+SHARPE_SLIDER_MIN = -10.0
+SHARPE_SLIDER_MAX = 5.0
+
+# Script/process settings
+SUBPROCESS_TIMEOUT_SECONDS = 600
+YFINANCE_RATE_LIMIT_DELAY = 0.5
 
 # Trade deduplication: columns used to build unique key (same key = duplicate trade)
 TRADE_DEDUP_COLUMNS = [
@@ -37,13 +62,6 @@ TRADE_DEDUP_COLUMNS = [
     "Signal_Date",
     "Signal_Type",   # Long or Short
     "Interval",
-]
-
-# Chart enabled pages
-CHART_ENABLED_PAGES = [
-    "Band Matrix", "DeltaDrift", "Fractal Track", "BaselineDiverge",
-    "Altitude Alpha", "Oscillator Delta", "SigmaShell", "PulseGauge",
-    "TrendPulse"
 ]
 
 # CSS for metric cards

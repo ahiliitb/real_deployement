@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, date
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
+
+from config import DATA_FETCH_DATETIME_JSON
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDIA_STOCK_DATA_DIR = os.path.join(ROOT_DIR, "stock_data", "INDIA")
@@ -93,6 +96,21 @@ def fetch_current_price_yfinance(symbol: str | Any) -> float | None:
         return None
 
 
+def _get_data_fetch_date() -> date | None:
+    """Return data-fetch date from data_fetch_datetime.json, or None if missing."""
+    if not os.path.isfile(DATA_FETCH_DATETIME_JSON):
+        return None
+    try:
+        with open(DATA_FETCH_DATETIME_JSON, encoding="utf-8") as f:
+            data = json.load(f)
+        d = data.get("date") or (data.get("datetime", "")[:10] if data.get("datetime") else None)
+        if not d:
+            return None
+        return datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
 def display_monitored_trades_metrics(
     df: pd.DataFrame, interval: str, position_name: str
 ) -> None:
@@ -101,7 +119,7 @@ def display_monitored_trades_metrics(
 
     This is reused by the Monitored, Potential, and All Signals pages.
     """
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         total_trades = len(df)
@@ -147,7 +165,8 @@ def display_monitored_trades_metrics(
                     except (ValueError, TypeError):
                         pass
             elif row.get("Status") == "Open":
-                current_price = row.get("Current_Price")
+                # Potential/All Signals use Today_Price; Monitored uses Current_Price
+                current_price = row.get("Current_Price") or row.get("Today_Price")
                 if (
                     pd.notna(current_price)
                     and current_price not in ("N/A", "", None)
@@ -198,30 +217,31 @@ def display_monitored_trades_metrics(
                         if signal_type == "SHORT":
                             pnl = -pnl
                         profits.append(pnl)
-                elif (
-                    row.get("Status") == "Open"
-                    and pd.notna(row.get("Current_Price"))
-                    and row.get("Current_Price") not in ("N/A", "", None)
-                ):
-                    current_price = row.get("Current_Price")
-                    signal_price = row.get("Signal_Price")
-                    signal_type = str(row.get("Signal_Type", "")).upper()
+                elif row.get("Status") == "Open":
+                    # Potential/All Signals use Today_Price; Monitored uses Current_Price
+                    current_price = row.get("Current_Price") or row.get("Today_Price")
+                    if (
+                        pd.notna(current_price)
+                        and current_price not in ("N/A", "", None)
+                    ):
+                        signal_price = row.get("Signal_Price")
+                        signal_type = str(row.get("Signal_Type", "")).upper()
 
-                    try:
-                        current_price = float(current_price)
-                        signal_price = (
-                            float(signal_price)
-                            if signal_price not in ("N/A", "", None)
-                            else 0.0
-                        )
-                    except (ValueError, TypeError):
-                        continue
+                        try:
+                            current_price = float(current_price)
+                            signal_price = (
+                                float(signal_price)
+                                if signal_price not in ("N/A", "", None)
+                                else 0.0
+                            )
+                        except (ValueError, TypeError):
+                            continue
 
-                    if signal_price > 0:
-                        pnl = ((current_price - signal_price) / signal_price) * 100
-                        if signal_type == "SHORT":
-                            pnl = -pnl
-                        profits.append(pnl)
+                        if signal_price > 0:
+                            pnl = ((current_price - signal_price) / signal_price) * 100
+                            if signal_type == "SHORT":
+                                pnl = -pnl
+                            profits.append(pnl)
             except Exception:
                 pass
 
@@ -232,6 +252,31 @@ def display_monitored_trades_metrics(
             st.metric("Avg Profit", "N/A")
 
     with col4:
+        # Average holding period (days)
+        fetch_date = _get_data_fetch_date() or date.today()
+        holding_days_list = []
+        for _, row in df.iterrows():
+            try:
+                sig_date_str = row.get("Signal_Date")
+                if not sig_date_str or pd.isna(sig_date_str):
+                    continue
+                sig_date = datetime.strptime(str(sig_date_str)[:10], "%Y-%m-%d").date()
+                if row.get("Status") == "Closed":
+                    exit_date_str = row.get("Exit_Date")
+                    if exit_date_str and str(exit_date_str).strip() and str(exit_date_str).lower() != "nan":
+                        exit_d = datetime.strptime(str(exit_date_str)[:10], "%Y-%m-%d").date()
+                        holding_days_list.append((exit_d - sig_date).days)
+                else:
+                    holding_days_list.append((fetch_date - sig_date).days)
+            except (ValueError, TypeError):
+                pass
+        if holding_days_list:
+            avg_holding = sum(holding_days_list) / len(holding_days_list)
+            st.metric("Avg Holding Period", f"{avg_holding:.1f} days")
+        else:
+            st.metric("Avg Holding Period", "N/A")
+
+    with col5:
         # Average backtested win rate
         if "Win_Rate" in df.columns:
             win_rates = []

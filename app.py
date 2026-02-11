@@ -3,7 +3,19 @@ import streamlit as st
 import time
 import os
 import subprocess
-from config import PAGE_CONFIG, METRIC_CARD_CSS, PAGE_OPTIONS, INDIA_DATA_DIR
+from config import (
+    PAGE_CONFIG,
+    METRIC_CARD_CSS,
+    PAGE_OPTIONS,
+    INDIA_DATA_DIR,
+    DATA_FETCH_DATETIME_JSON,
+    DEFAULT_MIN_WIN_RATE,
+    DEFAULT_MIN_SHARPE,
+    WIN_RATE_SLIDER_MAX,
+    SHARPE_SLIDER_MIN,
+    SHARPE_SLIDER_MAX,
+    SUBPROCESS_TIMEOUT_SECONDS,
+)
 from page_functions.trendline_signals import show_trendline_signals
 from page_functions.distance_signals import show_distance_signals
 from page_functions.forward_testing import show_forward_testing
@@ -12,8 +24,6 @@ from page_functions.all_signals import show_all_signals
 
 # Project root (directory where app.py lives)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-DATA_FETCH_DATETIME_JSON = os.path.join(INDIA_DATA_DIR, "data_fetch_datetime.json")
 
 # Set page configuration
 st.set_page_config(**PAGE_CONFIG)
@@ -39,7 +49,7 @@ if st.sidebar.button(
             cwd=SCRIPT_DIR,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
         )
         if r.returncode != 0:
             st.sidebar.warning(f"update_trade.sh exited with code {r.returncode}. Continuing.")
@@ -81,8 +91,8 @@ st.sidebar.markdown("---")
 # Initialize filter variables
 selected_function = "All"
 selected_interval = "All"
-min_win_rate = 70.0
-min_sharpe = -5.0
+min_win_rate = DEFAULT_MIN_WIN_RATE
+min_sharpe = DEFAULT_MIN_SHARPE
 
 # Add filters to sidebar based on selected page
 if selected_page == "📊 Forward Testing Performance":
@@ -129,25 +139,25 @@ elif selected_page in ["📈 Trendline Signals", "📏 Distance Signals"]:
         min_win_rate = st.sidebar.slider(
             "Min Win Rate (%)",
             min_value=float(min_available_win_rate),
-            max_value=100.0,
-            value=70.0,
+            max_value=float(WIN_RATE_SLIDER_MAX),
+            value=float(DEFAULT_MIN_WIN_RATE),
             step=1.0,
             help="Filter signals with win rate above this threshold",
             key="win_rate_slider"
         )
 
         # Sharpe Ratio filter (>= threshold)
-        min_available_sharpe = -10.0
+        min_available_sharpe = float(SHARPE_SLIDER_MIN)
         if 'Strategy_Sharpe' in df.columns:
             sharpe_values = df['Strategy_Sharpe'].dropna()
             if len(sharpe_values) > 0:
-                min_available_sharpe = sharpe_values.min()
+                min_available_sharpe = float(sharpe_values.min())
 
         min_sharpe = st.sidebar.slider(
             "Min Sharpe Ratio",
             min_value=float(min_available_sharpe),
-            max_value=5.0,
-            value=-5.0,
+            max_value=float(SHARPE_SLIDER_MAX),
+            value=float(DEFAULT_MIN_SHARPE),
             step=0.1,
             help="Filter signals with Sharpe ratio above this threshold",
             key="sharpe_slider"

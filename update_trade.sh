@@ -121,7 +121,7 @@ echo "📈 Enriching Trendline and Distance CSVs with fundamentals (PE_Ratio, In
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 fi
-if python3 enrich_trendline_distance_fundamentals.py; then
+if python3 -m utils.enrich_trendline_distance_fundamentals; then
     echo "   ✅ Fundamentals enrichment completed"
 else
     echo "   ⚠️  Fundamentals enrichment had warnings (see above)"
@@ -130,7 +130,7 @@ fi
 # Step 4: Build / update all_signals.csv from latest Distance/Trendline files
 echo ""
 echo "📚 Updating all_signals.csv (all deduplicated signals)..."
-if python3 all_signals_fetcher.py; then
+if python3 -m utils.all_signals_fetcher; then
     echo "   ✅ all_signals.csv updated"
 else
     echo "   ⚠️  all_signals.csv update had warnings (see above)"
@@ -139,7 +139,7 @@ fi
 # Step 5: Build / update potential_entry.csv and potential_exit.csv from latest Distance/Trendline files
 echo ""
 echo "📌 Updating potential entry/exit CSVs..."
-if python3 entry_exit_fetcher.py; then
+if python3 -m utils.entry_exit_fetcher; then
     echo "   ✅ Potential entry/exit CSVs updated"
 else
     echo "   ⚠️  Potential entry/exit update had warnings (see above)"

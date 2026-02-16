@@ -20,6 +20,7 @@ from page_functions.trendline_signals import show_trendline_signals
 from page_functions.distance_signals import show_distance_signals
 from page_functions.forward_testing import show_forward_testing
 from page_functions.potential_signals import show_potential_entry_exit
+from page_functions.trades_bought import show_trades_bought
 from page_functions.all_signals import show_all_signals
 
 # Project root (directory where app.py lives)
@@ -192,6 +193,9 @@ elif selected_page == "📚 All Signals":
 
 elif selected_page == "📌 Potential Entry & Exit":
     show_potential_entry_exit()
+
+elif selected_page == "🛒 Trades Bought":
+    show_trades_bought()
 
 elif selected_page == "📊 Forward Testing Performance":
     show_forward_testing(selected_function=selected_function, selected_interval=selected_interval)

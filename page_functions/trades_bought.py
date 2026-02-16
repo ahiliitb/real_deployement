@@ -1,14 +1,12 @@
 """
-Potential Entry & Exit Page
+Trades Bought Page
 
-Displays signals from:
-- trade_store/INDIA/potential_entry.csv
-- trade_store/INDIA/potential_exit.csv
-
-UI is modeled after the Monitored Trades page:
-- Sidebar controls section with Update Prices
-- Filters for Function, Symbol, Win Rate, Sharpe
-- Tabs and summary metrics + detailed table
+Displays trades that have been manually marked as "bought" by the user.
+Similar structure to Potential Entry/Exit page with:
+- Summary metrics
+- Strategy cards
+- Detailed data table
+- Ability to remove trades
 """
 
 import os
@@ -19,10 +17,7 @@ from typing import List, Dict, Any
 import pandas as pd
 import streamlit as st
 
-# Shared metrics and price helpers (moved into utils package).
 from config import (
-    POTENTIAL_ENTRY_CSV,
-    POTENTIAL_EXIT_CSV,
     TRADES_BOUGHT_CSV,
     DATA_FETCH_DATETIME_JSON,
     WIN_RATE_SLIDER_MAX,
@@ -31,7 +26,6 @@ from config import (
     DEFAULT_MIN_SHARPE,
     CARDS_PER_PAGE,
     SCROLLABLE_CONTAINER_CSS,
-    TRADE_DEDUP_COLUMNS,
 )
 from utils import (
     fetch_current_price_yfinance,
@@ -39,8 +33,8 @@ from utils import (
 )
 
 
-def _load_potential_from_csv(path: str) -> List[Dict[str, Any]]:
-    """Generic CSV loader for potential_entry/exit files."""
+def _load_bought_from_csv(path: str) -> List[Dict[str, Any]]:
+    """Load trades bought from CSV."""
     try:
         if not os.path.exists(path):
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -60,8 +54,8 @@ def _load_potential_from_csv(path: str) -> List[Dict[str, Any]]:
         return []
 
 
-def _save_potential_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
-    """Save potential signals back to CSV."""
+def _save_bought_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
+    """Save trades bought back to CSV."""
     try:
         if not records:
             pd.DataFrame().to_csv(path, index=False)
@@ -70,64 +64,6 @@ def _save_potential_to_csv(path: str, records: List[Dict[str, Any]]) -> None:
             df.to_csv(path, index=False)
     except Exception as e:
         st.error(f"Error saving {path}: {e}")
-
-
-def _generate_dedup_key(record: Dict[str, Any]) -> str:
-    """
-    Build deduplication key using TRADE_DEDUP_COLUMNS from config.
-    """
-    parts: List[str] = []
-    for col in TRADE_DEDUP_COLUMNS:
-        val = str(record.get(col, "")).strip()
-        if col == "Signal_Type":
-            val = "Short" if "short" in val.lower() else "Long"
-        parts.append(val)
-    return "|".join(parts)
-
-
-def _add_to_bought_trades(trade_record: Dict[str, Any]) -> str:
-    """
-    Add or update a trade in the bought trades CSV.
-    Returns "added" if new trade was added, "updated" if existing trade was updated,
-    or "error" if something went wrong.
-    """
-    try:
-        # Load existing bought trades
-        bought_records = _load_potential_from_csv(TRADES_BOUGHT_CSV)
-        
-        # Generate deduplication key
-        dedup_key = _generate_dedup_key(trade_record)
-        trade_record["Dedup_Key"] = dedup_key
-        
-        # Add/Update Bought_Date to the record
-        trade_record["Bought_Date"] = datetime.now().strftime("%Y-%m-%d")
-        
-        # Check if trade already exists
-        existing_index = None
-        for idx, rec in enumerate(bought_records):
-            rec_dedup_key = rec.get("Dedup_Key", "")
-            if not rec_dedup_key:
-                # Generate key for old records without Dedup_Key
-                rec_dedup_key = _generate_dedup_key(rec)
-                rec["Dedup_Key"] = rec_dedup_key
-            
-            if rec_dedup_key == dedup_key:
-                existing_index = idx
-                break
-        
-        if existing_index is not None:
-            # Update existing trade
-            bought_records[existing_index] = trade_record
-            _save_potential_to_csv(TRADES_BOUGHT_CSV, bought_records)
-            return "updated"
-        else:
-            # Add new trade
-            bought_records.append(trade_record)
-            _save_potential_to_csv(TRADES_BOUGHT_CSV, bought_records)
-            return "added"
-    except Exception as e:
-        st.error(f"Error adding/updating bought trades: {e}")
-        return "error"
 
 
 def _get_data_fetch_date() -> date | None:
@@ -145,29 +81,21 @@ def _get_data_fetch_date() -> date | None:
         return None
 
 
-def _update_potential_prices(progress_callback=None) -> None:
+def _update_bought_prices(progress_callback=None) -> None:
     """
-    Update Today_Price for all symbols in potential_entry and potential_exit CSVs
+    Update Today_Price for all symbols in trades_bought CSV
     using latest prices from stock_data/INDIA.
     """
-    paths = [POTENTIAL_ENTRY_CSV, POTENTIAL_EXIT_CSV]
-    all_records: List[Dict[str, Any]] = []
-    index_slices = []
-
-    # Load all records, remember slices per file
-    for path in paths:
-        recs = _load_potential_from_csv(path)
-        index_slices.append((path, len(all_records), len(all_records) + len(recs)))
-        all_records.extend(recs)
-
-    total = len(all_records)
+    records = _load_bought_from_csv(TRADES_BOUGHT_CSV)
+    
+    total = len(records)
     if total == 0:
-        raise ValueError("No potential entry/exit records to update.")
+        raise ValueError("No bought trades to update.")
 
     updated_count = 0
     processed = 0
 
-    for rec in all_records:
+    for rec in records:
         symbol = str(rec.get("Symbol", "")).strip()
         if not symbol:
             processed += 1
@@ -189,14 +117,10 @@ def _update_potential_prices(progress_callback=None) -> None:
             "No symbols could be updated. Check internet connection and that symbols are valid."
         )
 
-    # Write back to individual CSVs (drop any transient columns)
-    for path, start, end in index_slices:
-        if start == end:
-            continue
-        subset = all_records[start:end]
-        for rec in subset:
-            rec.pop("Current_Price", None)
-        _save_potential_to_csv(path, subset)
+    # Write back to CSV (drop any transient columns)
+    for rec in records:
+        rec.pop("Current_Price", None)
+    _save_bought_to_csv(TRADES_BOUGHT_CSV, records)
 
 
 def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -211,7 +135,11 @@ def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # Status: treat rows with non-empty Exit_Date as Closed
+    # Add Bought_Date if not present (for legacy records)
+    if "Bought_Date" not in df.columns:
+        df["Bought_Date"] = datetime.now().strftime("%Y-%m-%d")
+
+    # Status: all bought trades are "Open" unless they have Exit_Date
     if "Exit_Date" in df.columns:
         df["Status"] = df.apply(
             lambda row: "Closed"
@@ -224,7 +152,7 @@ def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
     else:
         df["Status"] = "Open"
 
-    # Numeric conversions for key fields (use Today_Price as the live price column)
+    # Numeric conversions for key fields
     numeric_cols = [
         "Signal_Price",
         "Today_Price",
@@ -260,11 +188,10 @@ def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
     return df
 
 
-def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
+def display_trades_table_bought(df: pd.DataFrame, title: str) -> None:
     """
-    Display trades table for potential signals.
-
-    Uses column label 'Today Price' backed by the Today_Price column.
+    Display trades table for bought trades.
+    Similar to potential signals table.
     """
     if df.empty:
         st.warning(f"No {title.lower()} to display")
@@ -274,7 +201,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
 
     custom_data = []
     for _, row in df.iterrows():
-        # Calculate profit/loss (same logic as monitored page)
+        # Calculate profit/loss
         profit = None
         try:
             signal_price = row.get("Signal_Price")
@@ -311,9 +238,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
         except (ValueError, TypeError):
             profit = None
 
-        # Holding period:
-        # - For open trades: data fetch date minus Signal_Date
-        # - For closed trades: Exit_Date minus Signal_Date
+        # Holding period
         holding_days = None
         try:
             sig_date_str = row.get("Signal_Date")
@@ -344,6 +269,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
             "Signal_Type": row.get("Signal_Type", ""),
             "Interval": row.get("Interval", ""),
             "Signal_Date": row.get("Signal_Date", ""),
+            "Bought_Date": row.get("Bought_Date", ""),
             "Signal_Price": row.get("Signal_Price", ""),
             "Today Price": row.get("Today_Price", ""),
             "Profit (%)": profit,
@@ -367,7 +293,7 @@ def display_trades_table_potential(df: pd.DataFrame, title: str) -> None:
 
     custom_df = pd.DataFrame(custom_data)
 
-    # Format numeric columns (same style as monitored page)
+    # Format numeric columns
     for col in [
         "Signal_Price",
         "Today Price",
@@ -422,10 +348,10 @@ def _format_fundamental_value(val):
         return str(val)
 
 
-def create_potential_strategy_cards(df: pd.DataFrame, title: str, tab_context: str = "") -> None:
+def create_bought_strategy_cards(df: pd.DataFrame, title: str, tab_context: str = "") -> None:
     """
-    Create individual strategy cards with pagination for potential entry/exit signals.
-    Similar to create_strategy_cards but adapted for potential signals data structure.
+    Create individual strategy cards with pagination for bought trades.
+    Includes a "Remove" button to remove trades from the bought list.
     """
     st.markdown("### 📊 Strategy Performance Cards")
     st.markdown("Click on any card to see important trade details")
@@ -442,10 +368,9 @@ def create_potential_strategy_cards(df: pd.DataFrame, title: str, tab_context: s
     # Pagination settings for strategy cards
     total_pages = (total_signals + CARDS_PER_PAGE - 1) // CARDS_PER_PAGE
 
-    # Create tabs for pagination - always use tabs instead of dropdown
+    # Create tabs for pagination
     if total_signals <= CARDS_PER_PAGE:
-        # If all signals fit in one page, just display them
-        display_potential_strategy_cards_page(df, title, tab_context)
+        display_bought_strategy_cards_page(df, title, tab_context)
     else:
         # Generate tab labels
         tab_labels = []
@@ -462,13 +387,12 @@ def create_potential_strategy_cards(df: pd.DataFrame, title: str, tab_context: s
                 end_idx = min((i + 1) * CARDS_PER_PAGE, total_signals)
                 page_df = df.iloc[start_idx:end_idx]
                 st.markdown(f"**Showing signals {start_idx + 1} to {end_idx} of {total_signals}**")
-                # Add pagination context to make keys unique across pagination tabs
                 pagination_context = f"{tab_context}_page{i}"
-                display_potential_strategy_cards_page(page_df, title, pagination_context)
+                display_bought_strategy_cards_page(page_df, title, pagination_context)
 
 
-def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_context: str = "") -> None:
-    """Display strategy cards for potential signals on a given page with scrollable container."""
+def display_bought_strategy_cards_page(df: pd.DataFrame, title: str, tab_context: str = "") -> None:
+    """Display strategy cards for bought trades on a given page with scrollable container."""
     if len(df) == 0:
         st.warning("No data to display on this page.")
         return
@@ -489,6 +413,7 @@ def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_cont
             signal_type = str(row.get("Signal_Type", "")).strip()
             interval = str(row.get("Interval", "")).strip()
             signal_date = str(row.get("Signal_Date", "")).strip()
+            bought_date = str(row.get("Bought_Date", "")).strip()
             signal_price = row.get("Signal_Price", "N/A")
             today_price = row.get("Today_Price", "N/A")
             status = row.get("Status", "Open")
@@ -563,7 +488,7 @@ def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_cont
                 "Last_Year_Same_Quarter_Profit": row.get("Last_Year_Same_Quarter_Profit", "N/A"),
             }
             
-            # Format signal price
+            # Format prices
             signal_price_display = f"{float(signal_price):.2f}" if pd.notna(signal_price) else "N/A"
             today_price_display = f"{float(today_price):.2f}" if pd.notna(today_price) else "N/A"
             exit_price_display = f"{float(exit_price):.2f}" if pd.notna(exit_price) and status == "Closed" else "N/A"
@@ -572,20 +497,29 @@ def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_cont
             expander_title = f"🔍 {function_name} - {symbol} | {interval} | {signal_type} | {signal_date}"
             
             with st.expander(expander_title, expanded=False):
-                # Buy button at the top
-                buy_key = f"buy_potential_{tab_context}_{card_num}_{idx}"
-                if st.button("🛒 Buy", key=buy_key, type="primary"):
-                    # Convert row to dict
-                    trade_dict = row.to_dict()
-                    result = _add_to_bought_trades(trade_dict)
-                    if result == "added":
-                        st.success(f"✅ Added {symbol} to Bought Trades!")
-                        st.info("Navigate to 🛒 Trades Bought page to view your bought trades.")
-                    elif result == "updated":
-                        st.success(f"✅ Updated {symbol} in Bought Trades!")
-                        st.info("Navigate to 🛒 Trades Bought page to view your bought trades.")
+                # Remove button at the top
+                remove_key = f"remove_bought_{tab_context}_{card_num}_{idx}"
+                if st.button("🗑️ Remove from Bought", key=remove_key, type="secondary"):
+                    # Remove this trade from bought list
+                    records = _load_bought_from_csv(TRADES_BOUGHT_CSV)
+                    # Find and remove the matching record
+                    dedup_key = row.get("Dedup_Key", "")
+                    if dedup_key:
+                        records = [r for r in records if r.get("Dedup_Key") != dedup_key]
                     else:
-                        st.error(f"❌ Error processing {symbol}. Please try again.")
+                        # Fallback: match by multiple fields
+                        records = [
+                            r for r in records
+                            if not (
+                                r.get("Symbol") == symbol
+                                and r.get("Signal_Date") == signal_date
+                                and r.get("Function") == function_name
+                                and r.get("Interval") == interval
+                            )
+                        ]
+                    _save_bought_to_csv(TRADES_BOUGHT_CSV, records)
+                    st.success(f"Removed {symbol} from bought trades")
+                    st.rerun()
                 
                 st.markdown("**📋 Key Trade Information**")
                 
@@ -599,6 +533,7 @@ def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_cont
                     st.write(f"**Interval:** {interval}")
                     st.write(f"**Signal:** {signal_type}")
                     st.write(f"**Signal Date:** {signal_date}")
+                    st.write(f"**Bought Date:** {bought_date}")
                     st.write(f"**Signal Price:** {signal_price_display}")
                     st.write(f"**Win Rate:** {win_rate_display}")
                 
@@ -629,33 +564,31 @@ def display_potential_strategy_cards_page(df: pd.DataFrame, title: str, tab_cont
                     st.write(f"**Same Qtr Prior Yr (Net Inc):** {_format_fundamental_value(same_q)}")
 
 
-def show_potential_entry_exit() -> None:
-    """Streamlit page: Potential Entry & Exit."""
-    st.title("📌 Potential Entry & Exit")
+def show_trades_bought() -> None:
+    """Streamlit page: Trades Bought."""
+    st.title("🛒 Trades Bought")
     st.markdown("---")
 
     # Load data
-    entry_records = _load_potential_from_csv(POTENTIAL_ENTRY_CSV)
-    exit_records = _load_potential_from_csv(POTENTIAL_EXIT_CSV)
+    bought_records = _load_bought_from_csv(TRADES_BOUGHT_CSV)
 
-    if not entry_records and not exit_records:
-        st.info("No potential entry or exit signals found yet. Run 'Generate signals & refresh' first.")
+    if not bought_records:
+        st.info("No bought trades yet. Use the 'Buy' button on Potential Entry/Exit cards to add trades here.")
         return
 
-    df_entry = _prepare_dataframe(entry_records)
-    df_exit = _prepare_dataframe(exit_records)
+    df_bought = _prepare_dataframe(bought_records)
 
     # Sidebar controls
-    st.sidebar.markdown("### 🔧 Controls (Potential)")
+    st.sidebar.markdown("### 🔧 Controls (Bought Trades)")
 
     if st.sidebar.button(
-        "🔄 Update Prices (Potential)",
-        key="update_potential_prices_btn",
-        help="Fetch latest prices for all potential entry/exit signals from local stock_data/INDIA files",
+        "🔄 Update Prices (Bought)",
+        key="update_bought_prices_btn",
+        help="Fetch latest prices for all bought trades",
     ):
-        total_records = len(df_entry) + len(df_exit)
+        total_records = len(df_bought)
         if total_records == 0:
-            st.sidebar.warning("No potential records to update.")
+            st.sidebar.warning("No bought trades to update.")
         else:
             progress_placeholder = st.sidebar.empty()
             progress_bar = st.sidebar.progress(0, text="Starting...")
@@ -674,25 +607,19 @@ def show_potential_entry_exit() -> None:
                     )
 
             try:
-                _update_potential_prices(progress_callback=on_progress)
+                _update_bought_prices(progress_callback=on_progress)
                 progress_bar.progress(1.0, text="Done!")
-                progress_placeholder.success("✅ Prices updated for potential signals.")
+                progress_placeholder.success("✅ Prices updated for bought trades.")
             except Exception as e:
                 progress_placeholder.error(f"Update failed: {e}")
             st.rerun()
-
-    # Build combined DataFrame for filter options
-    combined = pd.concat(
-        [df_entry.assign(Source="Entry"), df_exit.assign(Source="Exit")],
-        ignore_index=True,
-    )
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("#### 🔍 Filters")
 
     # Function filter
     available_functions = sorted(
-        [f for f in combined["Function"].dropna().unique() if str(f).strip()]
+        [f for f in df_bought["Function"].dropna().unique() if str(f).strip()]
     )
     all_functions_label = "All Functions"
     function_options = [all_functions_label] + available_functions
@@ -701,7 +628,7 @@ def show_potential_entry_exit() -> None:
         "Select Functions",
         options=function_options,
         default=function_options,
-        key="potential_functions_multiselect",
+        key="bought_functions_multiselect",
         help=f"Choose one or more functions. Select '{all_functions_label}' to include all.",
     )
 
@@ -712,7 +639,7 @@ def show_potential_entry_exit() -> None:
 
     # Symbol filter
     available_symbols = sorted(
-        [s for s in combined["Symbol"].dropna().unique() if str(s).strip()]
+        [s for s in df_bought["Symbol"].dropna().unique() if str(s).strip()]
     )
     all_symbols_label = "All Symbols"
     symbol_options = [all_symbols_label] + available_symbols
@@ -721,7 +648,7 @@ def show_potential_entry_exit() -> None:
         "Select Symbols",
         options=symbol_options,
         default=symbol_options,
-        key="potential_symbols_multiselect",
+        key="bought_symbols_multiselect",
         help=f"Choose one or more symbols. Select '{all_symbols_label}' to include all.",
     )
 
@@ -737,21 +664,21 @@ def show_potential_entry_exit() -> None:
         max_value=int(WIN_RATE_SLIDER_MAX),
         value=0,
         help="Minimum win rate threshold",
-        key="potential_win_rate_slider",
+        key="bought_win_rate_slider",
     )
 
-    # Sharpe ratio filter (if present, otherwise ignored in filtering)
+    # Sharpe ratio filter
     min_sharpe_ratio = st.sidebar.slider(
         "Min Strategy Sharpe Ratio",
         min_value=float(SHARPE_SLIDER_MIN),
         max_value=float(SHARPE_SLIDER_MAX),
         value=float(DEFAULT_MIN_SHARPE),
         step=0.1,
-        help="Minimum Strategy Sharpe Ratio threshold (if column exists)",
-        key="potential_sharpe_slider",
+        help="Minimum Strategy Sharpe Ratio threshold",
+        key="bought_sharpe_slider",
     )
 
-    # Apply filters to each DataFrame
+    # Apply filters
     def _apply_filters(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
@@ -765,52 +692,30 @@ def show_potential_entry_exit() -> None:
             df_f = df_f[df_f["Strategy_Sharpe"].fillna(-999) >= float(min_sharpe_ratio)]
         return df_f
 
-    df_entry_f = _apply_filters(df_entry)
-    df_exit_f = _apply_filters(df_exit)
+    df_bought_f = _apply_filters(df_bought)
 
-    # Tabs: Potential Entry / Potential Exit
-    tab_entry, tab_exit = st.tabs(["📥 Potential Entry", "📤 Potential Exit"])
-
-    with tab_entry:
-        st.subheader("📥 Potential Entry Signals")
-        if df_entry_f.empty:
-            st.info("No potential entry signals match the current filters.")
-        else:
-            # Sort newest first by Signal_Date if present
-            if "Signal_Date" in df_entry_f.columns:
-                df_entry_f = df_entry_f.sort_values(
-                    by="Signal_Date", ascending=False, na_position="last"
-                )
-            # Summary metrics
-            display_monitored_trades_metrics(df_entry_f, "All Intervals", "Potential Entry")
-            
-            # Strategy cards
-            st.markdown("---")
-            create_potential_strategy_cards(df_entry_f, "Potential Entry", "entry")
-            
-            # Detailed table
-            st.markdown("---")
-            st.markdown("### 📋 Detailed Data Table — Potential Entry")
-            display_trades_table_potential(df_entry_f, "Potential Entry")
-
-    with tab_exit:
-        st.subheader("📤 Potential Exit Signals")
-        if df_exit_f.empty:
-            st.info("No potential exit signals match the current filters.")
-        else:
-            if "Signal_Date" in df_exit_f.columns:
-                df_exit_f = df_exit_f.sort_values(
-                    by="Signal_Date", ascending=False, na_position="last"
-                )
-            # Summary metrics
-            display_monitored_trades_metrics(df_exit_f, "All Intervals", "Potential Exit")
-            
-            # Strategy cards
-            st.markdown("---")
-            create_potential_strategy_cards(df_exit_f, "Potential Exit", "exit")
-            
-            # Detailed table
-            st.markdown("---")
-            st.markdown("### 📋 Detailed Data Table — Potential Exit")
-            display_trades_table_potential(df_exit_f, "Potential Exit")
-
+    st.subheader("🛒 Bought Trades")
+    if df_bought_f.empty:
+        st.info("No bought trades match the current filters.")
+    else:
+        # Sort newest first by Bought_Date if present, else Signal_Date
+        if "Bought_Date" in df_bought_f.columns:
+            df_bought_f = df_bought_f.sort_values(
+                by="Bought_Date", ascending=False, na_position="last"
+            )
+        elif "Signal_Date" in df_bought_f.columns:
+            df_bought_f = df_bought_f.sort_values(
+                by="Signal_Date", ascending=False, na_position="last"
+            )
+        
+        # Summary metrics
+        display_monitored_trades_metrics(df_bought_f, "All Intervals", "Bought Trades")
+        
+        # Strategy cards
+        st.markdown("---")
+        create_bought_strategy_cards(df_bought_f, "Bought Trades", "bought")
+        
+        # Detailed table
+        st.markdown("---")
+        st.markdown("### 📋 Detailed Data Table — Bought Trades")
+        display_trades_table_bought(df_bought_f, "Bought Trades")

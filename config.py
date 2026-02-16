@@ -23,6 +23,7 @@ PAGE_OPTIONS = [
     "📏 Distance Signals",
     "📚 All Signals",
     "📌 Potential Entry & Exit",
+    "🛒 Trades Bought",
     "📊 Forward Testing Performance",
 ]
 
@@ -32,6 +33,7 @@ CARDS_PER_PAGE = 30
 # Data file paths (derived from INDIA_DATA_DIR)
 POTENTIAL_ENTRY_CSV = os.path.join(INDIA_DATA_DIR, "potential_entry.csv")
 POTENTIAL_EXIT_CSV = os.path.join(INDIA_DATA_DIR, "potential_exit.csv")
+TRADES_BOUGHT_CSV = os.path.join(INDIA_DATA_DIR, "trades_bought.csv")
 ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
 DATA_FETCH_DATETIME_JSON = os.path.join(INDIA_DATA_DIR, "data_fetch_datetime.json")
 

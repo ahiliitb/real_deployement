@@ -145,9 +145,9 @@ else
     echo "   ⚠️  Potential entry/exit update had warnings (see above)"
 fi
 
-# Step 6: Update Today Price for potential_entry.csv, potential_exit.csv, and all_signals.csv
+# Step 6: Update Today Price for potential_entry.csv, potential_exit.csv, trades_bought.csv, and all_signals.csv
 echo ""
-echo "💰 Updating Today Price for potential entry/exit and all signals..."
+echo "💰 Updating Today Price for potential entry/exit, bought trades, and all signals..."
 python3 - << 'PY'
 import sys
 import os
@@ -155,6 +155,7 @@ import os
 sys.path.insert(0, '.')
 
 from page_functions.potential_signals import _update_potential_prices
+from page_functions.trades_bought import _update_bought_prices
 from page_functions.all_signals import _update_all_signals_prices
 
 try:
@@ -162,6 +163,12 @@ try:
     print("   ✅ Today Price updated for potential_entry.csv and potential_exit.csv")
 except Exception as e:
     print(f"   ⚠️  Failed to update Today Price for potential CSVs: {e}")
+
+try:
+    _update_bought_prices()
+    print("   ✅ Today Price updated for trades_bought.csv")
+except Exception as e:
+    print(f"   ⚠️  Failed to update Today Price for trades_bought.csv: {e}")
 
 try:
     _update_all_signals_prices()
@@ -172,4 +179,4 @@ PY
 
 echo ""
 echo "✅ Report generation completed!"
-echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, and fresh potential entry/exit CSVs with updated Today Price."
+echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, and fresh potential entry/exit/bought CSVs with updated Today Price."

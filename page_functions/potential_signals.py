@@ -5,8 +5,7 @@ Displays signals from:
 - trade_store/INDIA/potential_entry.csv
 - trade_store/INDIA/potential_exit.csv
 
-UI is modeled after the Monitored Trades page:
-- Sidebar controls section with Update Prices
+UI features:
 - Filters for Function, Symbol, Win Rate, Sharpe
 - Tabs and summary metrics + detailed table
 """
@@ -98,9 +97,6 @@ def _add_to_bought_trades(trade_record: Dict[str, Any]) -> str:
         # Generate deduplication key
         dedup_key = _generate_dedup_key(trade_record)
         trade_record["Dedup_Key"] = dedup_key
-        
-        # Add/Update Bought_Date to the record
-        trade_record["Bought_Date"] = datetime.now().strftime("%Y-%m-%d")
         
         # Check if trade already exists
         existing_index = None
@@ -645,50 +641,14 @@ def show_potential_entry_exit() -> None:
     df_entry = _prepare_dataframe(entry_records)
     df_exit = _prepare_dataframe(exit_records)
 
-    # Sidebar controls
-    st.sidebar.markdown("### 🔧 Controls (Potential)")
-
-    if st.sidebar.button(
-        "🔄 Update Prices (Potential)",
-        key="update_potential_prices_btn",
-        help="Fetch latest prices for all potential entry/exit signals from local stock_data/INDIA files",
-    ):
-        total_records = len(df_entry) + len(df_exit)
-        if total_records == 0:
-            st.sidebar.warning("No potential records to update.")
-        else:
-            progress_placeholder = st.sidebar.empty()
-            progress_bar = st.sidebar.progress(0, text="Starting...")
-            status_text = st.sidebar.empty()
-
-            def on_progress(processed, total, symbol, success, price):
-                pct = processed / total if total else 0
-                progress_bar.progress(pct, text=f"Updating {processed}/{total}")
-                if success and price is not None:
-                    status_text.caption(
-                        f"✓ {symbol}: {price:.2f} — {processed} of {total} updated"
-                    )
-                else:
-                    status_text.caption(
-                        f"— {symbol or '(empty)'}: no price — {processed}/{total} processed"
-                    )
-
-            try:
-                _update_potential_prices(progress_callback=on_progress)
-                progress_bar.progress(1.0, text="Done!")
-                progress_placeholder.success("✅ Prices updated for potential signals.")
-            except Exception as e:
-                progress_placeholder.error(f"Update failed: {e}")
-            st.rerun()
-
     # Build combined DataFrame for filter options
     combined = pd.concat(
         [df_entry.assign(Source="Entry"), df_exit.assign(Source="Exit")],
         ignore_index=True,
     )
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#### 🔍 Filters")
+    # Sidebar filters
+    st.sidebar.markdown("### 🔍 Filters")
 
     # Function filter
     available_functions = sorted(

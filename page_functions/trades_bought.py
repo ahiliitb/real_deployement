@@ -135,10 +135,6 @@ def _prepare_dataframe(records: List[Dict[str, Any]]) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # Add Bought_Date if not present (for legacy records)
-    if "Bought_Date" not in df.columns:
-        df["Bought_Date"] = datetime.now().strftime("%Y-%m-%d")
-
     # Status: all bought trades are "Open" unless they have Exit_Date
     if "Exit_Date" in df.columns:
         df["Status"] = df.apply(
@@ -269,7 +265,6 @@ def display_trades_table_bought(df: pd.DataFrame, title: str) -> None:
             "Signal_Type": row.get("Signal_Type", ""),
             "Interval": row.get("Interval", ""),
             "Signal_Date": row.get("Signal_Date", ""),
-            "Bought_Date": row.get("Bought_Date", ""),
             "Signal_Price": row.get("Signal_Price", ""),
             "Today Price": row.get("Today_Price", ""),
             "Profit (%)": profit,
@@ -413,7 +408,6 @@ def display_bought_strategy_cards_page(df: pd.DataFrame, title: str, tab_context
             signal_type = str(row.get("Signal_Type", "")).strip()
             interval = str(row.get("Interval", "")).strip()
             signal_date = str(row.get("Signal_Date", "")).strip()
-            bought_date = str(row.get("Bought_Date", "")).strip()
             signal_price = row.get("Signal_Price", "N/A")
             today_price = row.get("Today_Price", "N/A")
             status = row.get("Status", "Open")
@@ -533,7 +527,6 @@ def display_bought_strategy_cards_page(df: pd.DataFrame, title: str, tab_context
                     st.write(f"**Interval:** {interval}")
                     st.write(f"**Signal:** {signal_type}")
                     st.write(f"**Signal Date:** {signal_date}")
-                    st.write(f"**Bought Date:** {bought_date}")
                     st.write(f"**Signal Price:** {signal_price_display}")
                     st.write(f"**Win Rate:** {win_rate_display}")
                 
@@ -578,44 +571,8 @@ def show_trades_bought() -> None:
 
     df_bought = _prepare_dataframe(bought_records)
 
-    # Sidebar controls
-    st.sidebar.markdown("### 🔧 Controls (Bought Trades)")
-
-    if st.sidebar.button(
-        "🔄 Update Prices (Bought)",
-        key="update_bought_prices_btn",
-        help="Fetch latest prices for all bought trades",
-    ):
-        total_records = len(df_bought)
-        if total_records == 0:
-            st.sidebar.warning("No bought trades to update.")
-        else:
-            progress_placeholder = st.sidebar.empty()
-            progress_bar = st.sidebar.progress(0, text="Starting...")
-            status_text = st.sidebar.empty()
-
-            def on_progress(processed, total, symbol, success, price):
-                pct = processed / total if total else 0
-                progress_bar.progress(pct, text=f"Updating {processed}/{total}")
-                if success and price is not None:
-                    status_text.caption(
-                        f"✓ {symbol}: {price:.2f} — {processed} of {total} updated"
-                    )
-                else:
-                    status_text.caption(
-                        f"— {symbol or '(empty)'}: no price — {processed}/{total} processed"
-                    )
-
-            try:
-                _update_bought_prices(progress_callback=on_progress)
-                progress_bar.progress(1.0, text="Done!")
-                progress_placeholder.success("✅ Prices updated for bought trades.")
-            except Exception as e:
-                progress_placeholder.error(f"Update failed: {e}")
-            st.rerun()
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#### 🔍 Filters")
+    # Sidebar filters
+    st.sidebar.markdown("### 🔍 Filters")
 
     # Function filter
     available_functions = sorted(
@@ -698,12 +655,8 @@ def show_trades_bought() -> None:
     if df_bought_f.empty:
         st.info("No bought trades match the current filters.")
     else:
-        # Sort newest first by Bought_Date if present, else Signal_Date
-        if "Bought_Date" in df_bought_f.columns:
-            df_bought_f = df_bought_f.sort_values(
-                by="Bought_Date", ascending=False, na_position="last"
-            )
-        elif "Signal_Date" in df_bought_f.columns:
+        # Sort newest first by Signal_Date
+        if "Signal_Date" in df_bought_f.columns:
             df_bought_f = df_bought_f.sort_values(
                 by="Signal_Date", ascending=False, na_position="last"
             )

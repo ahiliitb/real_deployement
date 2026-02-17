@@ -36,15 +36,15 @@ st.markdown(METRIC_CARD_CSS, unsafe_allow_html=True)
 st.sidebar.title("📊 Navigation")
 st.sidebar.markdown("---")
 
-# Button: Generate signals & refresh (runs update_trade.sh: emailscript, copy files, enrich fundamentals, update monitored prices)
+# Button: Generate signals & refresh (runs update_trade.sh: signals, files, enrichment, price updates)
 if st.sidebar.button(
     "🔄 Generate signals & refresh",
     key="generate_signals_refresh_btn",
-    help="Run update_trade.sh (signal generation, copy files, fundamentals enrichment, monitored prices), then refresh",
+    help="Run update_trade.sh: signal generation, file sync, fundamentals enrichment, bought trades update, and fresh price updates for all CSVs",
 ):
     progress = st.sidebar.empty()
     try:
-        progress.info("Running update_trade.sh (signals + copy + enrich + monitored prices)...")
+        progress.info("Running update_trade.sh (signals + files + enrichment + prices)...")
         r = subprocess.run(
             ["bash", "update_trade.sh"],
             cwd=SCRIPT_DIR,
@@ -56,7 +56,7 @@ if st.sidebar.button(
             st.sidebar.warning(f"update_trade.sh exited with code {r.returncode}. Continuing.")
             if r.stderr:
                 st.sidebar.code(r.stderr[:800], language="text")
-        progress.success("✅ Report generation completed. Refreshing...")
+        progress.success("✅ Data refresh completed (including all price updates)!")
     except subprocess.TimeoutExpired:
         progress.error("Script timed out. Please try again or run update_trade.sh manually.")
     except Exception as e:

@@ -145,38 +145,72 @@ else
     echo "   ⚠️  Potential entry/exit update had warnings (see above)"
 fi
 
-# Step 6: Update Today Price for potential_entry.csv, potential_exit.csv, trades_bought.csv, and all_signals.csv
+# Step 6: Enrich bought trades with latest signal data
+# This step updates trades_bought.csv by matching each bought trade with its corresponding
+# entry in all_signals.csv (by Symbol, Signal_Date, Function, Interval) and updating:
+# - Win_Rate, Strategy_CAGR, Strategy_Sharpe
+# - PE_Ratio, Industry_PE, Last_Quarter_Profit, Last_Year_Same_Quarter_Profit
+# - Exit_Signal_Raw, Exit_Date, Exit_Price (if exit signal appeared)
+# - TrendPulse fields
+# Bought_Date and other bought-specific fields are preserved.
 echo ""
-echo "💰 Updating Today Price for potential entry/exit, bought trades, and all signals..."
-python3 - << 'PY'
+echo "🔄 Enriching bought trades with latest signal data..."
+if python3 -m utils.update_bought_trades; then
+    echo "   ✅ Bought trades enriched with latest data"
+else
+    echo "   ⚠️  Bought trades enrichment had warnings (see above)"
+fi
+
+# Step 7: Update Today Price for all CSV files (fetch latest prices from yfinance)
+# This step fetches the absolute latest market prices for:
+# - potential_entry.csv and potential_exit.csv
+# - trades_bought.csv
+# - all_signals.csv
+echo ""
+echo "💰 Updating Today Price from yfinance..."
+
+# Update Potential Entry/Exit
+echo "   📊 Updating potential_entry.csv and potential_exit.csv..."
+python3 << 'PYSCRIPT'
 import sys
-import os
-
 sys.path.insert(0, '.')
-
-from page_functions.potential_signals import _update_potential_prices
-from page_functions.trades_bought import _update_bought_prices
-from page_functions.all_signals import _update_all_signals_prices
-
 try:
+    from page_functions.potential_signals import _update_potential_prices
     _update_potential_prices()
-    print("   ✅ Today Price updated for potential_entry.csv and potential_exit.csv")
+    print("      ✅ Potential entry/exit prices updated")
 except Exception as e:
-    print(f"   ⚠️  Failed to update Today Price for potential CSVs: {e}")
+    print(f"      ⚠️  Failed to update potential entry/exit prices: {e}")
+    sys.exit(1)
+PYSCRIPT
 
+# Update Bought Trades
+echo "   🛒 Updating trades_bought.csv..."
+python3 << 'PYSCRIPT'
+import sys
+sys.path.insert(0, '.')
 try:
+    from page_functions.trades_bought import _update_bought_prices
     _update_bought_prices()
-    print("   ✅ Today Price updated for trades_bought.csv")
+    print("      ✅ Bought trades prices updated")
 except Exception as e:
-    print(f"   ⚠️  Failed to update Today Price for trades_bought.csv: {e}")
+    print(f"      ⚠️  Failed to update bought trades prices: {e}")
+    sys.exit(1)
+PYSCRIPT
 
+# Update All Signals
+echo "   📚 Updating all_signals.csv..."
+python3 << 'PYSCRIPT'
+import sys
+sys.path.insert(0, '.')
 try:
+    from page_functions.all_signals import _update_all_signals_prices
     _update_all_signals_prices()
-    print("   ✅ Today Price updated for all_signals.csv")
+    print("      ✅ All signals prices updated")
 except Exception as e:
-    print(f"   ⚠️  Failed to update Today Price for all_signals.csv: {e}")
-PY
+    print(f"      ⚠️  Failed to update all signals prices: {e}")
+    sys.exit(1)
+PYSCRIPT
 
 echo ""
 echo "✅ Report generation completed!"
-echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, and fresh potential entry/exit/bought CSVs with updated Today Price."
+echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, enriched bought trades, and fresh potential entry/exit CSVs with updated Today Price."

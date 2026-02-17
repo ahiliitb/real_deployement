@@ -104,41 +104,6 @@ def show_all_signals() -> None:
 
     records = _load_all_signals_from_csv()
 
-    # Sidebar controls for this page
-    st.sidebar.markdown("### 🔧 Controls (All Signals)")
-    if st.sidebar.button(
-        "🔄 Update Prices (All Signals)",
-        key="update_all_signals_prices_btn",
-        help="Fetch latest prices for all rows on the All Signals page from local stock_data/INDIA files",
-    ):
-        total_records = len(records)
-        if total_records == 0:
-            st.sidebar.warning("No all-signals records to update.")
-        else:
-            progress_placeholder = st.sidebar.empty()
-            progress_bar = st.sidebar.progress(0, text="Starting...")
-            status_text = st.sidebar.empty()
-
-            def on_progress(processed, total, symbol, success, price):
-                pct = processed / total if total else 0
-                progress_bar.progress(pct, text=f"Updating {processed}/{total}")
-                if success and price is not None:
-                    status_text.caption(
-                        f"✓ {symbol}: {price:.2f} — {processed} of {total} updated"
-                    )
-                else:
-                    status_text.caption(
-                        f"— {symbol or '(empty)'}: no price — {processed}/{total} processed"
-                    )
-
-            try:
-                _update_all_signals_prices(progress_callback=on_progress)
-                progress_bar.progress(1.0, text="Done!")
-                progress_placeholder.success("✅ Prices updated for all-signals data.")
-            except Exception as e:
-                progress_placeholder.error(f"Update failed: {e}")
-            st.rerun()
-
     if not records:
         st.info(
             "No signals found in `all_signals.csv`. "

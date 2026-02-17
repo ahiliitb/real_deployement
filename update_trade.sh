@@ -106,9 +106,24 @@ SOURCE_CACHE_DIR="../MindWealth/cache/INDIA"
 TARGET_STOCK_DATA_DIR="stock_data/INDIA"
 if [ -d "$SOURCE_CACHE_DIR" ]; then
     mkdir -p "$TARGET_STOCK_DATA_DIR"
-    # -r to recurse, -u to only overwrite older files
-    cp -ru "$SOURCE_CACHE_DIR/"* "$TARGET_STOCK_DATA_DIR/" || true
-    echo "   ✅ Stock cache copied from $SOURCE_CACHE_DIR to $TARGET_STOCK_DATA_DIR"
+    
+    # Count files before copy
+    source_count=$(find "$SOURCE_CACHE_DIR" -maxdepth 1 -type f -name "*.csv" | wc -l | tr -d ' ')
+    
+    # Copy all CSV files, overwriting existing ones to ensure fresh data
+    # Using rsync for better control and reporting
+    if command -v rsync &> /dev/null; then
+        rsync -a --update "$SOURCE_CACHE_DIR/"*.csv "$TARGET_STOCK_DATA_DIR/" 2>/dev/null || \
+        cp -f "$SOURCE_CACHE_DIR/"*.csv "$TARGET_STOCK_DATA_DIR/" 2>/dev/null || true
+    else
+        # Fallback to cp with force flag to ensure all files are copied
+        cp -f "$SOURCE_CACHE_DIR/"*.csv "$TARGET_STOCK_DATA_DIR/" 2>/dev/null || true
+    fi
+    
+    # Count files after copy
+    target_count=$(find "$TARGET_STOCK_DATA_DIR" -maxdepth 1 -type f -name "*.csv" | wc -l | tr -d ' ')
+    
+    echo "   ✅ Stock cache copied: $source_count source files → $target_count target files"
 else
     echo "   ⚠️  Stock cache directory $SOURCE_CACHE_DIR not found; skipping stock_data copy"
 fi

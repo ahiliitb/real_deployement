@@ -21,24 +21,28 @@ from config import DATA_FETCH_DATETIME_JSON
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDIA_STOCK_DATA_DIR = os.path.join(ROOT_DIR, "stock_data", "INDIA")
-INDIA_TODAY_JSON = os.path.join(INDIA_STOCK_DATA_DIR, "today_date.json")
 
 
-def _load_today_date_mapping() -> dict[str, str]:
-    """Load mapping of symbol -> latest date from today_date.json."""
+def _get_data_fetch_date_str() -> str | None:
+    """
+    Get the data fetch date from data_fetch_datetime.json as a string (YYYY-MM-DD).
+    Returns None if file doesn't exist or date can't be parsed.
+    """
     try:
-        if not os.path.isfile(INDIA_TODAY_JSON):
-            return {}
-        with open(INDIA_TODAY_JSON, "r", encoding="utf-8") as f:
+        if not os.path.isfile(DATA_FETCH_DATETIME_JSON):
+            return None
+        with open(DATA_FETCH_DATETIME_JSON, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict):
-            return {str(k): str(v) for k, v in data.items()}
-        return {}
+        # Get date from either 'date' field or first 10 chars of 'datetime'
+        date_str = data.get("date") or (data.get("datetime", "")[:10] if data.get("datetime") else None)
+        if date_str:
+            return str(date_str)[:10]  # Ensure YYYY-MM-DD format
+        return None
     except Exception:
-        return {}
+        return None
 
 
-_TODAY_DATE_MAP: dict[str, str] | None = None
+_DATA_FETCH_DATE: str | None = None
 
 
 def fetch_current_price_yfinance(symbol: str | Any) -> float | None:
@@ -47,19 +51,19 @@ def fetch_current_price_yfinance(symbol: str | Any) -> float | None:
 
     Rules:
     - Symbols are expected in Yahoo-style format (e.g. "HCLTECH.NS").
-    - We first look up the expected "today" date in stock_data/INDIA/today_date.json.
-    - Then we read stock_data/INDIA/{symbol}.csv and take the Close on that date.
-    - If that exact date row is missing, we fall back to the last available Close.
+    - We use the date from data_fetch_datetime.json to find the correct row.
+    - If that exact date row is missing, we use the latest available date in the CSV.
+    - This ensures each asset uses its most recent data, even if fetch dates differ.
     """
-    global _TODAY_DATE_MAP
+    global _DATA_FETCH_DATE
 
     if not symbol or not str(symbol).strip():
         return None
     sym = str(symbol).strip()
 
-    # Lazy‑load today_date.json mapping once
-    if _TODAY_DATE_MAP is None:
-        _TODAY_DATE_MAP = _load_today_date_mapping()
+    # Lazy-load data fetch date once
+    if _DATA_FETCH_DATE is None:
+        _DATA_FETCH_DATE = _get_data_fetch_date_str()
 
     csv_path = os.path.join(INDIA_STOCK_DATA_DIR, f"{sym}.csv")
     if not os.path.isfile(csv_path):
@@ -73,22 +77,18 @@ def fetch_current_price_yfinance(symbol: str | Any) -> float | None:
     if df.empty or "Close" not in df.columns:
         return None
 
-    # If we know the expected "today" date for this symbol, try to use that row
-    target_date = None
-    if _TODAY_DATE_MAP:
-        target_date = _TODAY_DATE_MAP.get(sym)
-
-    if target_date and "Date" in df.columns:
+    # Try to use the data fetch date if available and exists in CSV
+    if _DATA_FETCH_DATE and "Date" in df.columns:
         try:
-            row = df.loc[df["Date"] == target_date]
+            row = df.loc[df["Date"] == _DATA_FETCH_DATE]
             if not row.empty:
                 val = row.iloc[0]["Close"]
                 return float(val)
         except Exception:
-            # Fall back to last available row below
             pass
-
-    # Fallback: use the last available row's Close
+    
+    # Fallback: use the last available row's Close (latest date in this asset's CSV)
+    # This ensures we always use the most recent data available for each asset
     try:
         last_row = df.iloc[-1]
         return float(last_row["Close"])

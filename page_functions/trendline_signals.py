@@ -3,7 +3,6 @@ import os
 from config import DATA_FILES, INDIA_DATA_DIR
 from utils.data_loader import load_csv, get_latest_dated_file_path
 from components.summary_cards import create_summary_cards
-from components.cards import create_strategy_cards
 
 
 def _symbol_from_row(row):
@@ -105,15 +104,9 @@ def show_trendline_signals(min_win_rate=70.0, min_sharpe=-5.0):
             st.subheader("📊 Summary Metrics")
             create_summary_cards(df_filtered, "Trendline Signals")
 
-            st.subheader("🎯 Strategy Cards")
-            create_strategy_cards(df_filtered, "Trendline Signals", "trends")
-
             st.subheader("📊 Detailed Data Table")
-            # Hide fundamentals columns in table (shown only in strategy cards)
-            table_cols_hide = ["PE_Ratio", "Industry_PE", "Last_Quarter_Profit", "Last_Year_Same_Quarter_Profit"]
-            df_table = df_filtered.drop(columns=[c for c in table_cols_hide if c in df_filtered.columns], errors="ignore")
             st.dataframe(
-                df_table,
+                df_filtered,
                 use_container_width=True,
                 height=600,
             )

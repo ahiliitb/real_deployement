@@ -36,6 +36,7 @@ POTENTIAL_EXIT_CSV = os.path.join(INDIA_DATA_DIR, "potential_exit.csv")
 TRADES_BOUGHT_CSV = os.path.join(INDIA_DATA_DIR, "trades_bought.csv")
 ALL_SIGNALS_CSV = os.path.join(INDIA_DATA_DIR, "all_signals.csv")
 DATA_FETCH_DATETIME_JSON = os.path.join(INDIA_DATA_DIR, "data_fetch_datetime.json")
+NET_HOLDINGS_CSV = os.path.join("deployement", "net_holdings.csv")
 
 # Entry/Exit conditions (used by utils.entry_exit_fetcher)
 ENTRY_EXIT_MIN_WIN_RATE = 80.0
@@ -44,6 +45,7 @@ ENTRY_PRICE_BAND_PCT_ABOVE = 1.0  # Reject if today price >= this % above signal
 ENTRY_PRICE_BAND_PCT_BELOW = -3.0  # Reject if today price <= this % below signal price
 ENTRY_EXIT_MAX_PE_RATIO = 50.0
 ENTRY_EXIT_PROFIT_RATIO = 0.5  # Last_Quarter_Profit > this * Last_Year_Same_Quarter_Profit
+ENTRY_SIGNAL_RECENCY_DAYS = 7  # Signal_Date must be within this many days of fetch date
 EXIT_RECENCY_DAYS = 3  # Exit_Date must be within this many days of fetch date
 
 # Filter defaults (Trendline/Distance sidebar sliders)

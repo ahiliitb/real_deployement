@@ -226,6 +226,15 @@ except Exception as e:
     sys.exit(1)
 PYSCRIPT
 
+# Step 8: Fetch net holdings from Groww account
+echo ""
+echo "💼 Fetching net holdings from Groww account..."
+if python3 deployement/groww.py; then
+    echo "   ✅ Net holdings fetched and saved to deployement/net_holdings.csv"
+else
+    echo "   ⚠️  Failed to fetch net holdings (check .env credentials or network)"
+fi
+
 echo ""
 echo "✅ Report generation completed!"
-echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, enriched bought trades, and fresh potential entry/exit CSVs with updated Today Price."
+echo "💡 Data: Distance/Trendline CSVs, forward_testing.csv, data_fetch_datetime.json, fundamentals enrichment, all_signals.csv, enriched bought trades, fresh prices, and Groww net holdings."

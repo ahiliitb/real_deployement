@@ -20,6 +20,7 @@ import streamlit as st
 from config import (
     TRADES_BOUGHT_CSV,
     DATA_FETCH_DATETIME_JSON,
+    NET_HOLDINGS_CSV,
     WIN_RATE_SLIDER_MAX,
     SHARPE_SLIDER_MIN,
     SHARPE_SLIDER_MAX,
@@ -557,6 +558,21 @@ def display_bought_strategy_cards_page(df: pd.DataFrame, title: str, tab_context
                     st.write(f"**Same Qtr Prior Yr (Net Inc):** {_format_fundamental_value(same_q)}")
 
 
+def _load_net_holdings() -> pd.DataFrame:
+    """Load net holdings from Groww account CSV."""
+    try:
+        if not os.path.exists(NET_HOLDINGS_CSV):
+            return pd.DataFrame()
+        if os.path.getsize(NET_HOLDINGS_CSV) == 0:
+            return pd.DataFrame()
+        df = pd.read_csv(NET_HOLDINGS_CSV)
+        if df.empty:
+            return pd.DataFrame()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def show_trades_bought() -> None:
     """Streamlit page: Trades Bought."""
     st.title("🛒 Trades Bought")
@@ -672,3 +688,55 @@ def show_trades_bought() -> None:
         st.markdown("---")
         st.markdown("### 📋 Detailed Data Table — Bought Trades")
         display_trades_table_bought(df_bought_f, "Bought Trades")
+    
+    # Net Holdings from Groww Account
+    st.markdown("---")
+    st.markdown("### 💼 Net Holdings (Groww Account)")
+    
+    df_holdings = _load_net_holdings()
+    if df_holdings.empty:
+        st.info("No net holdings data available. Run 'Generate signals & refresh' to fetch from Groww.")
+    else:
+        # Format the holdings table
+        df_display = df_holdings.copy()
+        
+        # Format numeric columns
+        if 'quantity' in df_display.columns:
+            df_display['quantity'] = df_display['quantity'].apply(lambda x: f"{float(x):.2f}")
+        if 'avg_price' in df_display.columns:
+            df_display['avg_price'] = df_display['avg_price'].apply(lambda x: f"{float(x):.2f}")
+        if 'ltp' in df_display.columns:
+            df_display['ltp'] = df_display['ltp'].apply(lambda x: f"{float(x):.2f}")
+        if 'invested_value' in df_display.columns:
+            df_display['invested_value'] = df_display['invested_value'].apply(lambda x: f"{float(x):,.2f}")
+        if 'market_value' in df_display.columns:
+            df_display['market_value'] = df_display['market_value'].apply(lambda x: f"{float(x):,.2f}")
+        if 'pnl' in df_display.columns:
+            df_display['pnl'] = df_display['pnl'].apply(lambda x: f"{float(x):,.2f}")
+        
+        # Rename columns for better display
+        df_display.columns = [
+            'Symbol', 'Quantity', 'Avg Price', 'LTP', 
+            'Invested Value', 'Market Value', 'P&L'
+        ]
+        
+        # Calculate summary metrics
+        df_numeric = df_holdings.copy()
+        total_invested = df_numeric['invested_value'].sum()
+        total_market = df_numeric['market_value'].sum()
+        total_pnl = df_numeric['pnl'].sum()
+        total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+        
+        # Display summary
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Holdings", len(df_holdings))
+        with col2:
+            st.metric("Invested Value", f"₹{total_invested:,.2f}")
+        with col3:
+            st.metric("Market Value", f"₹{total_market:,.2f}")
+        with col4:
+            st.metric("Total P&L", f"₹{total_pnl:,.2f}", f"{total_pnl_pct:.2f}%")
+        
+        st.markdown("---")
+        st.dataframe(df_display, use_container_width=True, height=400)

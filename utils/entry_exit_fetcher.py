@@ -18,6 +18,7 @@ from config import (
     ENTRY_PRICE_BAND_PCT_BELOW,
     ENTRY_EXIT_MAX_PE_RATIO,
     ENTRY_EXIT_PROFIT_RATIO,
+    ENTRY_SIGNAL_RECENCY_DAYS,
     EXIT_RECENCY_DAYS,
 )
 
@@ -250,6 +251,7 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     - Win Rate [%] > 80
     - Number of Trades > 6
     - Exit signal is "No Exit Yet"
+    - Signal date within 7 days of fetch date (signal recency)
     - |today price vs signal| < 1%
     - Industry PE > PE ratio
     - PE ratio < 50
@@ -259,6 +261,19 @@ def entry_conditions(record: Dict[str, Any]) -> bool:
     # Long only
     signal_type = str(record.get("Signal_Type", "")).strip().upper()
     if signal_type != "LONG":
+        return False
+
+    # Signal date recency check (within ENTRY_SIGNAL_RECENCY_DAYS of fetch date)
+    signal_date_str = record.get("Signal_Date")
+    if not signal_date_str:
+        return False
+    try:
+        signal_dt = datetime.strptime(str(signal_date_str).strip()[:10], "%Y-%m-%d").date()
+        fetch_date = date.today()  # Use today as fetch date
+        days_since_signal = (fetch_date - signal_dt).days
+        if days_since_signal > ENTRY_SIGNAL_RECENCY_DAYS or days_since_signal < 0:
+            return False
+    except (ValueError, TypeError):
         return False
 
     # Win rate & number of trades
